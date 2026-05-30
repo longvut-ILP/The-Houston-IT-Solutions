@@ -55,6 +55,24 @@
             color: var(--cyan);
         }
 
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .nav-home {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: color 0.3s;
+        }
+
+        .nav-home:hover {
+            color: var(--cyan);
+        }
+
         .nav-phone {
             color: var(--cyan);
             text-decoration: none;
@@ -131,13 +149,6 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 2rem;
-        }
-
-        @media (max-width: 768px) {
-            .split-section {
-                grid-template-columns: 1fr;
-            }
-            h1 { font-size: 2rem; }
         }
 
         .build-card {
@@ -329,13 +340,31 @@
             font-size: 0.85rem;
             border-top: 1px solid rgba(255, 255, 255, 0.05);
         }
+
+        /* Mobile Adjustments */
+        @media (max-width: 768px) {
+            .split-section {
+                grid-template-columns: 1fr;
+            }
+            h1 { font-size: 2rem; }
+            .nav-actions { gap: 1rem; }
+            .nav-home { font-size: 0.85rem; }
+            .nav-phone { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+        }
+        @media (max-width: 480px) {
+            nav { flex-direction: column; gap: 1rem; }
+        }
     </style>
 </head>
 <body>
 
     <nav>
         <div class="logo">The Houston IT <span>Solutions LLC</span></div>
-        <a href="tel:8328569995" class="nav-phone">📞 832-856-9995</a>
+        <div class="nav-actions">
+            <!-- Ensure href="index.html" matches your main homepage filename -->
+            <a href="index.html" class="nav-home">← Back to Home</a>
+            <a href="tel:8328569995" class="nav-phone">📞 832-856-9995</a>
+        </div>
     </nav>
 
     <header class="hero">
@@ -395,7 +424,6 @@
             <div class="gallery-item">
                 <img src="https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Advanced Multi-Screen Trading Station">
             </div>
-            <!-- FIXED Image 6 -->
             <div class="gallery-item">
                 <img src="https://images.unsplash.com/photo-1598550476439-6847785fcea6?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Clean Modern Dual Monitor Setup">
             </div>
