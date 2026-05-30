@@ -277,6 +277,8 @@
       transition: background 0.3s, border-color 0.3s, transform 0.3s;
       position: relative;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     .service-card::before {
       content: '';
@@ -310,6 +312,20 @@
       font-size: 0.9rem;
       line-height: 1.7;
       color: var(--silver);
+      flex-grow: 1;
+    }
+    
+    .card-link {
+        color: var(--cyan);
+        text-decoration: none;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-top: 1.2rem;
+        display: inline-block;
+        transition: color 0.2s;
+    }
+    .card-link:hover {
+        color: var(--white);
     }
 
     /* ─── WHY US ─── */
@@ -491,6 +507,7 @@
     </div>
     <ul class="nav-links">
       <li><a href="#services">Services</a></li>
+      <li><a href="custom-builds.html">Custom Builds</a></li>
       <li><a href="#why">About</a></li>
       <li><a href="#process">Process</a></li>
       <li><a href="#contact" class="nav-cta">Get a Quote</a></li>
@@ -534,6 +551,14 @@
     <div class="section-title">Our Services</div>
     <p class="section-sub">From new hardware setup to ongoing maintenance contracts, we handle every layer of your IT needs.</p>
     <div class="services-grid">
+      <!-- NEW CUSTOM BUILDS CARD ADDED HERE -->
+      <div class="service-card">
+        <span class="service-icon">🎮</span>
+        <h3>Custom PC Builds</h3>
+        <p>Design your perfect machine. We build high-yield professional workstations and zero-compromise liquid-cooled gaming rigs.</p>
+        <a href="custom-builds.html" class="card-link">Explore Custom Builds →</a>
+      </div>
+
       <div class="service-card">
         <span class="service-icon">🖥️</span>
         <h3>Computer Installation</h3>
@@ -679,6 +704,7 @@
           <input type="tel" placeholder="Phone Number" />
           <select>
             <option value="" disabled selected>Service Needed</option>
+            <option>Custom PC Build</option> <!-- Added Service Option -->
             <option>Computer Installation</option>
             <option>Hardware Maintenance</option>
             <option>Performance Tuning</option>
@@ -703,6 +729,7 @@
     <p>Serving Houston &amp; surrounding areas</p>
     <div class="footer-links">
       <a href="#services">Services</a>
+      <a href="custom-builds.html">Custom Builds</a> <!-- Added Footer Link -->
       <a href="#why">About</a>
       <a href="#contact">Contact</a>
     </div>
