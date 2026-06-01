@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background -->
+  <rect width="64" height="64" fill="#0a0f1e" rx="8"/>
+  
+  <!-- Circuit pattern -->
+  <g stroke="#0057ff" stroke-width="1.5" fill="none">
+    <!-- Top left corner -->
+    <line x1="12" y1="12" x2="24" y2="12"/>
+    <line x1="24" y1="12" x2="24" y2="24"/>
+    
+    <!-- Top right corner -->
+    <line x1="40" y1="12" x2="52" y2="12"/>
+    <line x1="40" y1="12" x2="40" y2="24"/>
+    
+    <!-- Bottom left corner -->
+    <line x1="12" y1="40" x2="24" y2="40"/>
+    <line x1="24" y1="40" x2="24" y2="52"/>
+    
+    <!-- Bottom right corner -->
+    <line x1="40" y1="40" x2="52" y2="40"/>
+    <line x1="40" y1="40" x2="40" y2="52"/>
+    
+    <!-- Center cross -->
+    <line x1="32" y1="20" x2="32" y2="44"/>
+    <line x1="20" y1="32" x2="44" y2="32"/>
+  </g>
+  
+  <!-- Central nodes with cyan accent -->
+  <circle cx="32" cy="32" r="3" fill="#00d4ff"/>
+  <circle cx="24" cy="24" r="2" fill="#0057ff" opacity="0.6"/>
+  <circle cx="40" cy="24" r="2" fill="#0057ff" opacity="0.6"/>
+  <circle cx="24" cy="40" r="2" fill="#0057ff" opacity="0.6"/>
+  <circle cx="40" cy="40" r="2" fill="#0057ff" opacity="0.6"/>
+  
+  <!-- Outer ring accent -->
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.3"/>
+</svg>
