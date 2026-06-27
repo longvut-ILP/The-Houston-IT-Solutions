@@ -38,15 +38,15 @@ test("W-2 checkout persists a commission record matching the engine", { skip }, 
   });
 
   assert.equal(result.path, "W2");
-  assert.equal(result.breakdown.commissionWagesCents, 4671);
-  assert.equal(result.breakdown.techTakeHomeCents, 6671);
+  assert.equal(result.breakdown.commissionWagesCents, 4540);
+  assert.equal(result.breakdown.techTakeHomeCents, 6540);
 
   const { rows } = await pool.query(
     `SELECT commission_wages_cents FROM commission_records WHERE ticket_id = $1`,
     [result.ticketId]
   );
   assert.equal(rows.length, 1);
-  assert.equal(Number(rows[0].commission_wages_cents), 4671);
+  assert.equal(Number(rows[0].commission_wages_cents), 4540);
 });
 
 test("1099 checkout persists a payout record and marks it paid", { skip }, async () => {

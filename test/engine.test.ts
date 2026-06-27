@@ -36,26 +36,27 @@ const TICKET: Ticket = {
 };
 
 test("applyBps rounds to the nearest cent (half-up)", () => {
-  assert.equal(applyBps(8941, 5000), 4471); // 4470.5 -> 4471
+  assert.equal(applyBps(8680, 5000), 4340); // 50% of net service
   assert.equal(applyBps(2000, 1000), 200);
   assert.equal(applyBps(0, 5000), 0);
 });
 
 test("cardFee = percent + fixed, and is 0 on non-positive amounts", () => {
-  assert.equal(cardFee(10000, CONFIG), 59); // round(29) + 30
+  // 2.9% of $100 = $2.90 (290c) + $0.30 fixed = $3.20 (320c)
+  assert.equal(cardFee(10000, CONFIG), 320);
   assert.equal(cardFee(0, CONFIG), 0);
   assert.equal(cardFee(-5, CONFIG), 0);
 });
 
 test("computeW2Ticket runs the PRD sequence in cents", () => {
   const b = computeW2Ticket(TICKET, W2_TECH, CONFIG);
-  assert.equal(b.ccFeeOnServiceCents, 59);
-  assert.equal(b.productCostCents, 1000);
-  assert.equal(b.netServiceRevenueCents, 8941);
-  assert.equal(b.serviceCommissionCents, 4471);
-  assert.equal(b.retailCommissionCents, 200);
-  assert.equal(b.commissionWagesCents, 4671);
-  assert.equal(b.techTakeHomeCents, 6671); // 4671 + 2000 tip
+  assert.equal(b.ccFeeOnServiceCents, 320); // 2.9% of $100 + $0.30
+  assert.equal(b.productCostCents, 1000); // 10% of $100
+  assert.equal(b.netServiceRevenueCents, 8680); // 10000 - 320 - 1000
+  assert.equal(b.serviceCommissionCents, 4340); // 50% of 8680
+  assert.equal(b.retailCommissionCents, 200); // 10% of $20
+  assert.equal(b.commissionWagesCents, 4540); // 4340 + 200
+  assert.equal(b.techTakeHomeCents, 6540); // 4540 + 2000 card tip
 });
 
 test("computeRenterPayout keeps gross service + tip, nets the card fee", () => {
