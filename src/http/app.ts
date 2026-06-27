@@ -153,6 +153,11 @@ export function createApp() {
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
 
+  // Friendly public root so hitting the base URL isn't a scary auth error.
+  app.get("/", (_req, res) =>
+    res.json({ service: "Nail Salon POS API", ok: true, health: "/health" })
+  );
+
   // --- Auth (public) ---
   app.post(
     "/auth/login",
