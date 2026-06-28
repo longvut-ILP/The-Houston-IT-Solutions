@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>The Houston IT Solutions LLC</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%2300d4ff'>💻</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --navy: #0a0f1e;
+      --deep: #0d1630;
+      --blue: #0057ff;
+      --cyan: #00d4ff;
+      --silver: #c8d6e8;
+      --muted: #6b7fa3;
+      --white: #f0f4ff;
+      --card-bg: rgba(255,255,255,0.04);
+      --border: rgba(0,212,255,0.15);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--navy);
+      color: var(--white);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      overflow-x: hidden;
+    }
+
+    /* ─── GRID OVERLAY ─── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,87,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,87,255,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── NAV ─── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.2rem 5vw;
+      background: rgba(10,15,30,0.85);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      flex-direction: column;
+      line-height: 1;
+    }
+    .logo-main {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.5rem;
+      letter-spacing: 0.08em;
+      color: var(--white);
+    }
+    .logo-main span { color: var(--cyan); }
+    .logo-sub {
+      font-size: 0.62rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2.5rem;
+      list-style: none;
+    }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--silver);
+      font-size: 0.85rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--cyan); }
+
+    .nav-cta {
+      background: var(--blue);
+      color: var(--white) !important;
+      padding: 0.5rem 1.2rem;
+      border-radius: 2px;
+      transition: background 0.2s !important;
+    }
+    .nav-cta:hover { background: var(--cyan) !important; color: var(--navy) !important; }
+
+    .nav-pos {
+      border: 1px solid var(--cyan);
+      color: var(--cyan) !important;
+      padding: 0.5rem 1.2rem;
+      border-radius: 2px;
+      transition: background 0.2s, color 0.2s !important;
+    }
+    .nav-pos:hover { background: var(--cyan); color: var(--navy) !important; }
+
+    /* ─── HERO ─── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 10rem 5vw 6rem;
+      overflow: hidden;
+    }
+
+    .hero-glow {
+      position: absolute;
+      top: -10%;
+      right: -5%;
+      width: 60vw;
+      height: 60vw;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,87,255,0.18) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .hero-glow2 {
+      position: absolute;
+      bottom: 0;
+      left: 10%;
+      width: 30vw;
+      height: 30vw;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,212,255,0.1) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    .hero-content { position: relative; z-index: 1; max-width: 720px; }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.75rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 1.4rem;
+      opacity: 0;
+      animation: fadeUp 0.7s 0.2s forwards;
+    }
+    .hero-eyebrow::before {
+      content: '';
+      width: 32px; height: 1px;
+      background: var(--cyan);
+    }
+
+    .hero h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(3.5rem, 8vw, 7rem);
+      line-height: 0.95;
+      letter-spacing: 0.02em;
+      margin-bottom: 1.6rem;
+      opacity: 0;
+      animation: fadeUp 0.7s 0.4s forwards;
+    }
+    .hero h1 span { color: var(--cyan); }
+
+    .hero-desc {
+      font-size: 1.05rem;
+      line-height: 1.75;
+      color: var(--silver);
+      max-width: 520px;
+      margin-bottom: 2.4rem;
+      opacity: 0;
+      animation: fadeUp 0.7s 0.6s forwards;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      opacity: 0;
+      animation: fadeUp 0.7s 0.8s forwards;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: var(--white);
+      padding: 0.85rem 2rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+      display: inline-block;
+    }
+    .btn-primary:hover { background: var(--cyan); color: var(--navy); transform: translateY(-2px); }
+
+    .btn-outline {
+      border: 1px solid var(--border);
+      color: var(--silver);
+      padding: 0.85rem 2rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: border-color 0.2s, color 0.2s, transform 0.2s;
+      display: inline-block;
+    }
+    .btn-outline:hover { border-color: var(--cyan); color: var(--cyan); transform: translateY(-2px); }
+
+    .hero-stats {
+      position: absolute;
+      bottom: 4rem;
+      right: 5vw;
+      display: flex;
+      gap: 3rem;
+      z-index: 1;
+      opacity: 0;
+      animation: fadeUp 0.7s 1s forwards;
+    }
+    .stat { text-align: right; }
+    .stat-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2.8rem;
+      color: var(--cyan);
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ─── SECTION SHARED ─── */
+    section { position: relative; z-index: 1; padding: 6rem 5vw; }
+
+    .section-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 0.8rem;
+    }
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(2.2rem, 5vw, 3.8rem);
+      letter-spacing: 0.03em;
+      line-height: 1;
+      margin-bottom: 1rem;
+    }
+    .section-sub {
+      color: var(--silver);
+      font-size: 1rem;
+      line-height: 1.7;
+      max-width: 520px;
+      margin-bottom: 3.5rem;
+    }
+
+    /* ─── SERVICES ─── */
+    .services { background: var(--deep); }
+
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5px;
+    }
+
+    .service-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 2.4rem 2rem;
+      transition: background 0.3s, border-color 0.3s, transform 0.3s;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .service-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px;
+      height: 0;
+      background: var(--cyan);
+      transition: height 0.4s;
+    }
+    .service-card:hover::before { height: 100%; }
+    .service-card:hover {
+      background: rgba(0,212,255,0.04);
+      border-color: rgba(0,212,255,0.35);
+      transform: translateY(-4px);
+    }
+
+    .service-icon {
+      font-size: 2rem;
+      margin-bottom: 1.2rem;
+      display: block;
+    }
+    .service-card h3 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.5rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.8rem;
+      color: var(--white);
+    }
+    .service-card p {
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: var(--silver);
+      flex-grow: 1;
+    }
+    
+    .card-link {
+        color: var(--cyan);
+        text-decoration: none;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-top: 1.2rem;
+        display: inline-block;
+        transition: color 0.2s;
+    }
+    .card-link:hover {
+        color: var(--white);
+    }
+
+    /* ─── WHY US ─── */
+    .why { display: grid; grid-template-columns: 1fr 1fr; gap: 5vw; align-items: center; }
+
+    .why-visual {
+      position: relative;
+      height: 420px;
+    }
+    .why-block {
+      position: absolute;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 1.6rem;
+    }
+    .why-block:nth-child(1) { top: 0; left: 0; width: 60%; }
+    .why-block:nth-child(2) { top: 30%; right: 0; width: 55%; }
+    .why-block:nth-child(3) { bottom: 0; left: 10%; width: 50%; }
+
+    .why-block-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 3rem;
+      color: var(--blue);
+      line-height: 1;
+      opacity: 0.5;
+    }
+    .why-block h4 {
+      font-weight: 500;
+      font-size: 0.95rem;
+      margin-bottom: 0.3rem;
+    }
+    .why-block p { font-size: 0.82rem; color: var(--muted); }
+
+    .why-list { list-style: none; margin-bottom: 2rem; }
+    .why-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.8rem;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+      color: var(--silver);
+    }
+    .why-list li::before {
+      content: '→';
+      color: var(--cyan);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* ─── PROCESS ─── */
+    .process { background: var(--deep); }
+    .process-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0;
+      position: relative;
+    }
+    .process-steps::before {
+      content: '';
+      position: absolute;
+      top: 2.5rem;
+      left: 0; right: 0;
+      height: 1px;
+      background: var(--border);
+    }
+    .step { padding: 0 1.5rem 0 0; position: relative; }
+    .step-num {
+      width: 48px; height: 48px;
+      border: 1px solid var(--cyan);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.2rem;
+      color: var(--cyan);
+      background: var(--deep);
+      margin-bottom: 1.4rem;
+      position: relative;
+      z-index: 1;
+    }
+    .step h4 {
+      font-weight: 500;
+      font-size: 1rem;
+      margin-bottom: 0.4rem;
+    }
+    .step p { font-size: 0.85rem; color: var(--muted); line-height: 1.65; }
+
+    /* ─── CONTACT ─── */
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4vw;
+      align-items: start;
+    }
+
+    .contact-info { }
+    .contact-detail {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      margin-bottom: 1.6rem;
+    }
+    .contact-icon {
+      width: 42px; height: 42px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .contact-detail h4 { font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.2rem; }
+    .contact-detail p { font-size: 0.95rem; color: var(--silver); }
+
+    .contact-form { display: flex; flex-direction: column; gap: 1rem; }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    input, textarea, select {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--white);
+      padding: 0.85rem 1rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s;
+      resize: none;
+    }
+    input::placeholder, textarea::placeholder { color: var(--muted); }
+    input:focus, textarea:focus, select:focus { border-color: var(--cyan); }
+    select option { background: var(--deep); }
+    textarea { min-height: 120px; }
+
+    /* ─── FOOTER ─── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 5vw;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    footer p { font-size: 0.8rem; color: var(--muted); }
+    .footer-links { display: flex; gap: 1.8rem; }
+    .footer-links a { font-size: 0.8rem; color: var(--muted); text-decoration: none; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--cyan); }
+
+    /* ─── ANIMATIONS ─── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero-stats { position: static; margin-top: 3rem; justify-content: flex-start; }
+      .why { grid-template-columns: 1fr; }
+      .why-visual { display: none; }
+      .contact-grid { grid-template-columns: 1fr; }
+      .form-row { grid-template-columns: 1fr; }
+      .process-steps::before { display: none; }
+      .step { padding: 0 0 2rem 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="logo">
+      <div class="logo-main">The Houston <span>IT</span></div>
+      <div class="logo-sub">Solutions LLC</div>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#services">Services</a></li>
+      <li><a href="custom-builds.html">Custom Builds</a></li>
+      <li><a href="#why">About</a></li>
+      <li><a href="#process">Process</a></li>
+      <li><a href="pos-solutions.html" class="nav-pos">POS Systems</a></li>
+      <li><a href="#contact" class="nav-cta">Get a Quote</a></li>
+    </ul>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <div class="hero-glow2"></div>
+    <div class="hero-content">
+      <div class="hero-eyebrow">Houston, Texas — Serving Businesses & Homes</div>
+      <h1>Your Local <span>IT</span><br>Experts</h1>
+      <p class="hero-desc">
+        Professional computer installation, maintenance, and support services. We keep your technology running at peak performance — so you don't have to worry about it.
+      </p>
+      <div class="hero-actions">
+        <a href="#contact" class="btn-primary">Request Service</a>
+        <a href="#services" class="btn-outline">Our Services</a>
+      </div>
+    </div>
+    <div class="hero-stats">
+      <div class="stat">
+        <div class="stat-num">500+</div>
+        <div class="stat-label">Clients Served</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">24h</div>
+        <div class="stat-label">Response Time</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">99%</div>
+        <div class="stat-label">Satisfaction</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICES -->
+  <section class="services" id="services">
+    <div class="section-label">What We Do</div>
+    <div class="section-title">Our Services</div>
+    <p class="section-sub">From new hardware setup to ongoing maintenance contracts, we handle every layer of your IT needs.</p>
+    <div class="services-grid">
+      <!-- NEW CUSTOM BUILDS CARD ADDED HERE -->
+      <div class="service-card">
+        <span class="service-icon">🎮</span>
+        <h3>Custom PC Builds</h3>
+        <p>Design your perfect machine. We build high-yield professional workstations and zero-compromise liquid-cooled gaming rigs.</p>
+        <a href="custom-builds.html" class="card-link">Explore Custom Builds →</a>
+      </div>
+
+      <div class="service-card">
+        <span class="service-icon">🖥️</span>
+        <h3>Computer Installation</h3>
+        <p>New workstation setup, peripheral connections, OS installation, driver configuration, and network integration. Ready to work from day one.</p>
+      </div>
+      <div class="service-card">
+        <span class="service-icon">🔧</span>
+        <h3>Hardware Maintenance</h3>
+        <p>Routine cleaning, component inspection, thermal paste replacement, hard drive diagnostics, and proactive part replacements to prevent failures.</p>
+      </div>
+      <div class="service-card">
+        <span class="service-icon">⚡</span>
+        <h3>Performance Tuning</h3>
+        <p>Speed up sluggish systems with RAM upgrades, SSD installations, startup optimization, and software cleanup — breathe new life into existing hardware.</p>
+      </div>
+      <div class="service-card">
+        <span class="service-icon">🛡️</span>
+        <h3>Security & Antivirus</h3>
+        <p>Malware removal, antivirus deployment, firewall configuration, and security audits to protect your data and privacy.</p>
+      </div>
+      <div class="service-card">
+        <span class="service-icon">🌐</span>
+        <h3>Network Setup</h3>
+        <p>Wi-Fi configuration, router setup, wired network cabling, VPN access, and troubleshooting for home offices and small businesses.</p>
+      </div>
+      <div class="service-card">
+        <span class="service-icon">☁️</span>
+        <h3>Backup & Recovery</h3>
+        <p>Automated cloud and local backup solutions, data recovery from failed drives, and disaster recovery planning to keep your data safe.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY US -->
+  <section id="why" style="padding: 6rem 5vw;">
+    <div class="why">
+      <div class="why-visual">
+        <div class="why-block">
+          <div class="why-block-num">01</div>
+          <h4>On-Site & Remote</h4>
+          <p>We come to you, or connect remotely — whatever's faster for your situation.</p>
+        </div>
+        <div class="why-block">
+          <div class="why-block-num">02</div>
+          <h4>Transparent Pricing</h4>
+          <p>Flat rates and honest estimates. No surprise charges after the work is done.</p>
+        </div>
+        <div class="why-block">
+          <div class="why-block-num">03</div>
+          <h4>Local Houston Team</h4>
+          <p>We're your neighbors. Fast response, real accountability, community trust.</p>
+        </div>
+      </div>
+      <div class="why-content">
+        <div class="section-label">Why Choose Us</div>
+        <div class="section-title">IT Support You Can Actually Trust</div>
+        <p class="section-sub">We're not a big box store helpdesk. We're a local, dedicated team that treats every client like a long-term partner.</p>
+        <ul class="why-list">
+          <li>Certified technicians with years of hands-on experience</li>
+          <li>Same-day and next-day appointments available</li>
+          <li>Residential and commercial clients welcome</li>
+          <li>Plain-English explanations — no tech jargon</li>
+          <li>Maintenance contracts for ongoing peace of mind</li>
+          <li>Satisfaction guaranteed on every job</li>
+        </ul>
+        <a href="#contact" class="btn-primary">Book a Technician</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROCESS -->
+  <section class="process" id="process">
+    <div class="section-label">How It Works</div>
+    <div class="section-title">Simple Process,<br>Real Results</div>
+    <p class="section-sub">Getting your technology sorted is straightforward when you work with us.</p>
+    <div class="process-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h4>Contact Us</h4>
+        <p>Call, email, or fill out our form. Describe your issue and we'll get back to you fast.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h4>Free Assessment</h4>
+        <p>We assess the issue — remotely or in person — and give you a clear, upfront quote.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h4>Expert Service</h4>
+        <p>Our technician completes the work efficiently with minimal disruption to your day.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <h4>Follow-Up</h4>
+        <p>We check back to make sure everything is running perfectly. Your satisfaction is our priority.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section id="contact">
+    <div class="section-label">Get In Touch</div>
+    <div class="section-title">Request Service</div>
+    <p class="section-sub">Ready to get your technology sorted? Reach out and we'll get back to you within one business day.</p>
+    <div class="contact-grid">
+      <div class="contact-info">
+        <div class="contact-detail">
+          <div class="contact-icon">📍</div>
+          <div>
+            <h4>Location</h4>
+            <p>Houston, Texas</p>
+          </div>
+        </div>
+        <div class="contact-detail">
+          <div class="contact-icon">📞</div>
+          <div>
+            <h4>Phone</h4>
+            <p>(832) 856-9995</p>
+          </div>
+        </div>
+        <div class="contact-detail">
+          <div class="contact-icon">✉️</div>
+          <div>
+            <h4>Email</h4>
+            <p>info@houstonitsolutions.com</p>
+          </div>
+        </div>
+        <div class="contact-detail">
+          <div class="contact-icon">🕐</div>
+          <div>
+            <h4>Hours</h4>
+            <p>Mon–Fri: 8am – 6pm<br>Sat: 9am – 3pm</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <form class="contact-form" onsubmit="handleSubmit(event)">
+          <div class="form-row">
+            <input type="text" placeholder="First Name" required />
+            <input type="text" placeholder="Last Name" required />
+          </div>
+          <input type="email" placeholder="Email Address" required />
+          <input type="tel" placeholder="Phone Number" />
+          <select>
+            <option value="" disabled selected>Service Needed</option>
+            <option>Custom PC Build</option> <!-- Added Service Option -->
+            <option>Computer Installation</option>
+            <option>Hardware Maintenance</option>
+            <option>Performance Tuning</option>
+            <option>Security & Antivirus</option>
+            <option>Network Setup</option>
+            <option>Backup & Recovery</option>
+            <option>Other</option>
+          </select>
+          <textarea placeholder="Describe your issue or what you need..."></textarea>
+          <button type="submit" class="btn-primary" style="cursor:pointer; font-size:0.9rem;">Send Request →</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="logo">
+      <div class="logo-main">The Houston <span style="color:var(--cyan)">IT</span></div>
+      <div class="logo-sub">Solutions LLC &copy; 2018</div>
+    </div>
+    <p>Serving Houston &amp; surrounding areas</p>
+    <div class="footer-links">
+      <a href="#services">Services</a>
+      <a href="custom-builds.html">Custom Builds</a> <!-- Added Footer Link -->
+      <a href="pos-solutions.html">POS Systems</a>
+      <a href="#why">About</a>
+      <a href="#contact">Contact</a>
+    </div>
+  </footer>
+
+  <script>
+    function handleSubmit(e) {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.textContent = '✓ Request Sent!';
+      btn.style.background = 'var(--cyan)';
+      btn.style.color = 'var(--navy)';
+      setTimeout(() => {
+        btn.textContent = 'Send Request →';
+        btn.style.background = '';
+        btn.style.color = '';
+        e.target.reset();
+      }, 3000);
+    }
+
+    // Scroll-triggered fade-in for cards
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.service-card, .step, .why-block').forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(20px)';
+      el.style.transition = 'opacity 0.5s ease, transform 0.5s ease, background 0.3s, border-color 0.3s';
+      observer.observe(el);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1162 @@
+import { useState, useMemo, useEffect } from "react";
+import {
+  Calendar,
+  ShoppingCart,
+  LayoutDashboard,
+  Settings,
+  Scissors,
+  Package,
+  CreditCard,
+  Banknote,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  UserPlus,
+  Building2,
+  DollarSign,
+  FileSpreadsheet,
+  Users,
+  Coins,
+  Download,
+  RefreshCw,
+  WifiOff,
+  LogOut,
+  Lock,
+} from "lucide-react";
+import * as api from "./salonApi";
+
+/* ===========================================================================
+ * Nail Salon POS — front-end wired to the live API (src/http/app.ts).
+ * Money is in integer CENTS, rates in BASIS POINTS (10000 = 100%). The client
+ * recomputes per-ticket previews with the same math the server persists, so
+ * dashboard numbers match payouts. Start the API first: `npm run dev`.
+ * =========================================================================== */
+
+// ---- engine mirror (matches src/lib/commissionEngine.ts) ------------------
+const applyBps = (cents, bps) => Math.round((cents * bps) / 10000);
+const cardFee = (cents, cfg) =>
+  cents <= 0 ? 0 : applyBps(cents, cfg.ccFeePctBps) + cfg.ccFeeFixedCents;
+
+function computeW2Ticket(t, tech, cfg) {
+  const ccFeeOnService = cardFee(t.service, cfg);
+  const productCost = applyBps(t.service, cfg.productCostPctBps);
+  const netService = Math.max(0, t.service - ccFeeOnService - productCost);
+  const serviceCommission = applyBps(netService, tech.serviceCommissionBps);
+  const retailCommission = applyBps(t.retail, tech.retailCommissionBps);
+  const commissionWages = serviceCommission + retailCommission;
+  return {
+    ccFeeOnService,
+    productCost,
+    netService,
+    serviceCommission,
+    retailCommission,
+    commissionWages,
+    cardTip: t.ccTip,
+    cashTip: t.cashTip,
+    techTakeHome: commissionWages + t.ccTip + t.cashTip,
+  };
+}
+
+function computeRenterPayout(t, cfg) {
+  const routable = t.service + t.ccTip;
+  const fee = cardFee(routable, cfg);
+  return {
+    instantPayout: Math.max(0, routable - fee),
+    cardFee: fee,
+    cashTip: t.cashTip,
+    salonRetail: t.retail,
+  };
+}
+
+const fmt = (c) => {
+  const s = c < 0 ? "-" : "";
+  const v = Math.abs(c || 0);
+  return `${s}$${Math.floor(v / 100).toLocaleString()}.${String(v % 100).padStart(2, "0")}`;
+};
+const pct = (bps) => `${(bps / 100).toFixed(bps % 100 ? 2 : 0)}%`;
+
+// ---- API shape adapters ---------------------------------------------------
+const SLOTS = ["9:00", "9:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "1:00", "1:30", "2:00", "2:30", "3:00", "3:30"];
+const STATUS = {
+  done: { tone: "green", label: "Checked out", icon: CheckCircle2, cell: "border-green-200 bg-green-50" },
+  in_chair: { tone: "amber", label: "In chair", icon: Clock, cell: "border-amber-200 bg-amber-50" },
+  booked: { tone: "blue", label: "Booked", icon: Calendar, cell: "border-blue-200 bg-blue-50" },
+};
+const ST = { BOOKED: "booked", IN_CHAIR: "in_chair", DONE: "done", CANCELLED: "cancelled", NO_SHOW: "no_show" };
+
+function toSlot(iso) {
+  const d = new Date(iso);
+  const h = d.getHours();
+  const m = d.getMinutes() < 30 ? "00" : "30";
+  const h12 = h > 12 ? h - 12 : h;
+  return `${h12}:${m}`;
+}
+function slotToISO(slot, dateISO) {
+  const [hStr, mStr] = slot.split(":");
+  let h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (h >= 1 && h <= 8) h += 12; // afternoon slots (1–3 -> 13–15)
+  const d = new Date(`${dateISO}T00:00:00`);
+  d.setHours(h, m, 0, 0);
+  return d.toISOString();
+}
+function adaptAppt(row) {
+  return {
+    id: row.id,
+    techId: row.tech_id,
+    client: row.client_label || "Client",
+    service: row.service_desc || "",
+    status: ST[row.status] || "booked",
+    time: toSlot(row.starts_at),
+  };
+}
+// API WorkweekPay -> the field names the UI panels use.
+const flsaView = (wp) =>
+  wp
+    ? {
+        hours: wp.hoursWorked,
+        commission: wp.commissionWagesCents,
+        floor: wp.flsa.minWageFloorCents,
+        topUp: wp.flsa.minWageTopUpCents,
+        otHours: wp.flsa.overtimeHours,
+        otPremium: wp.flsa.overtimePremiumCents,
+        rate: wp.flsa.regularRateCentsPerHour,
+        gross: wp.flsa.grossPayCents,
+      }
+    : null;
+
+// ---- small UI atoms -------------------------------------------------------
+const Card = ({ children, className = "" }) => (
+  <div className={`rounded-2xl border border-gray-200 bg-white shadow-sm ${className}`}>{children}</div>
+);
+const Badge = ({ children, tone = "gray" }) => {
+  const tones = {
+    gray: "bg-gray-100 text-gray-700",
+    green: "bg-green-100 text-green-700",
+    blue: "bg-blue-100 text-blue-700",
+    amber: "bg-amber-100 text-amber-800",
+    purple: "bg-purple-100 text-purple-700",
+  };
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tones[tone]}`}>{children}</span>;
+};
+const Row = ({ label, value, strong, tone }) => (
+  <div className="flex items-center justify-between py-1.5">
+    <span className={`text-sm ${strong ? "font-semibold text-gray-900" : "text-gray-500"}`}>{label}</span>
+    <span className={`text-sm tabular-nums ${strong ? "font-bold" : ""} ${tone === "neg" ? "text-rose-600" : tone === "pos" ? "text-emerald-600" : "text-gray-900"}`}>{value}</span>
+  </div>
+);
+
+// ---- Login gate -----------------------------------------------------------
+function Login({ onLogin }) {
+  const [email, setEmail] = useState("owner@polished.test");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await onLogin(email, password);
+    } catch (e2) {
+      setErr(e2.message || String(e2));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-600 text-white"><Scissors size={18} /></div>
+          <div>
+            <div className="text-sm font-bold leading-tight">Polished POS</div>
+            <div className="text-xs text-gray-500 leading-tight">Sign in to your salon</div>
+          </div>
+        </div>
+        <label className="mb-3 block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">Email</span>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username"
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" />
+        </label>
+        <label className="mb-4 block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">Password</span>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password"
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" />
+        </label>
+        {err && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+        <button type="submit" disabled={busy || !password}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+          <Lock size={15} /> {busy ? "Signing in…" : "Sign in"}
+        </button>
+        <p className="mt-3 text-center text-xs text-gray-400">
+          Seed owner: owner@polished.test · set a password with{" "}
+          <code className="rounded bg-gray-100 px-1">npm run create-user</code>
+        </p>
+      </form>
+    </div>
+  );
+}
+
+// ===========================================================================
+export default function SalonPOS() {
+  const [user, setUser] = useState(null);
+  const [tab, setTab] = useState("schedule");
+  const [config, setConfig] = useState(null);
+  const [techs, setTechs] = useState([]);
+  const [appts, setAppts] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [pending, setPending] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const loadAll = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await api.loadCalendar(); // server-authoritative salon-local dates
+      const day = api.today();
+      const [cfg, staff, apptRows, tks] = await Promise.all([
+        api.getSettings(),
+        api.getStaff(),
+        api.getAppointments(day),
+        api.getTickets(day),
+      ]);
+      setConfig(cfg);
+      setTechs(staff);
+      setAppts(apptRows.map(adaptAppt).filter((a) => ["booked", "in_chair", "done"].includes(a.status)));
+      setTickets(tks);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (user) loadAll();
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleLogin = async (email, password) => {
+    const staff = await api.login(email, password);
+    setUser(staff);
+  };
+  const handleLogout = () => {
+    api.logout();
+    setUser(null);
+    setConfig(null);
+    setTechs([]);
+    setAppts([]);
+    setTickets([]);
+    setTab("schedule");
+  };
+
+  const refreshTickets = async () => setTickets(await api.getTickets(api.today()));
+  const refreshAppts = async () =>
+    setAppts((await api.getAppointments(api.today())).map(adaptAppt).filter((a) => ["booked", "in_chair", "done"].includes(a.status)));
+  const refreshStaff = async () => setTechs(await api.getStaff());
+
+  const goCheckout = (appt) => {
+    setPending(appt);
+    setTab("checkout");
+  };
+  const handleCheckout = async (payload) => {
+    const r = await api.checkout(payload);
+    await Promise.all([refreshTickets(), refreshAppts()]);
+    return r;
+  };
+  const handleAddWalkIn = async (techId) => {
+    const taken = new Set(appts.filter((a) => a.techId === techId).map((a) => a.time));
+    const slot = SLOTS.find((s) => !taken.has(s)) || SLOTS[SLOTS.length - 1];
+    await api.createAppointment({
+      techId,
+      clientLabel: "Walk-in",
+      serviceDesc: "New service",
+      startsAt: slotToISO(slot, api.today()),
+    });
+    await refreshAppts();
+  };
+  const handleSaveSettings = async (cfg) => setConfig(await api.putSettings(cfg));
+  const handleSaveComp = async (staffId, body) => {
+    await api.updateStaffComp(staffId, body);
+    await refreshStaff();
+  };
+
+  // Tech logins only see operational tabs; owner/admin get reports + config.
+  const isManager = user && (user.role === "OWNER" || user.role === "ADMIN");
+  const tabs = [
+    { id: "schedule", label: "Turns", icon: Calendar },
+    { id: "checkout", label: "Checkout", icon: ShoppingCart },
+    { id: "dashboard", label: "Tech Dashboard", icon: LayoutDashboard },
+    ...(isManager
+      ? [
+          { id: "owner", label: "Owner", icon: DollarSign },
+          { id: "admin", label: "Admin Config", icon: Settings },
+        ]
+      : []),
+  ];
+
+  if (!user) return <Login onLogin={handleLogin} />;
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-600 text-white"><Scissors size={18} /></div>
+          <div>
+            <div className="text-sm font-bold leading-tight">Polished POS</div>
+            <div className="text-xs text-gray-500 leading-tight">Salon &amp; Commission Manager</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone={error ? "amber" : "green"}>{error ? "API offline" : "Live API"}</Badge>
+          <span className="hidden text-xs text-gray-500 sm:inline">{user.name} · {user.role}</span>
+          <button onClick={loadAll} className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600">
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button onClick={handleLogout} className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600">
+            <LogOut size={13} /> Sign out
+          </button>
+        </div>
+      </header>
+
+      <nav className="flex gap-1 border-b border-gray-200 bg-white px-4">
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium ${active ? "border-purple-600 text-purple-700" : "border-transparent text-gray-500"}`}>
+              <Icon size={16} /> {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      <main className="mx-auto max-w-6xl p-6">
+        {loading && (
+          <div className="flex items-center justify-center gap-2 py-20 text-gray-400">
+            <RefreshCw size={18} className="animate-spin" /> Loading from API…
+          </div>
+        )}
+
+        {!loading && error && (
+          <Card className="p-6">
+            <div className="flex items-start gap-3">
+              <WifiOff size={20} className="mt-0.5 text-amber-500" />
+              <div>
+                <div className="font-semibold">Couldn&apos;t reach the API</div>
+                <p className="mt-1 text-sm text-gray-500">
+                  Start it with <code className="rounded bg-gray-100 px-1">npm run dev</code> (default{" "}
+                  <code className="rounded bg-gray-100 px-1">{api.API_BASE}</code>), apply the migrations + seed, then retry.
+                </p>
+                <p className="mt-1 text-xs text-gray-400">Details: {error}</p>
+                <button onClick={loadAll} className="mt-3 rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white">Retry</button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {!loading && !error && config && techs.length > 0 && (
+          <>
+            {tab === "schedule" && <Schedule techs={techs} appts={appts} onAddWalkIn={handleAddWalkIn} onCheckout={goCheckout} />}
+            {tab === "checkout" && (
+              <Checkout techs={techs} config={config} user={user} pending={pending} clearPending={() => setPending(null)} onComplete={handleCheckout} />
+            )}
+            {tab === "dashboard" && <Dashboard techs={techs} config={config} tickets={tickets} user={user} />}
+            {tab === "owner" && <Owner techs={techs} config={config} tickets={tickets} today={api.today()} />}
+            {tab === "admin" && <Admin config={config} techs={techs} onSaveSettings={handleSaveSettings} onSaveComp={handleSaveComp} />}
+          </>
+        )}
+
+        {!loading && !error && config && techs.length === 0 && (
+          <Card className="p-6 text-sm text-gray-500">No staff yet. Add staff via the API, then Refresh.</Card>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ---- Turns / Schedule (calendar time-grid) --------------------------------
+function Schedule({ techs, appts, onAddWalkIn, onCheckout }) {
+  const [walkTech, setWalkTech] = useState(techs[0].id);
+  const [busy, setBusy] = useState(false);
+
+  const addWalkIn = async () => {
+    setBusy(true);
+    try {
+      await onAddWalkIn(walkTech);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold">Today&apos;s Turns</h2>
+          <p className="text-sm text-gray-500">Each booking links to a tech so commission tracks automatically at checkout.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={walkTech} onChange={(e) => setWalkTech(e.target.value)} className="rounded-xl border border-gray-200 px-2 py-2 text-sm">
+            {techs.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <button onClick={addWalkIn} disabled={busy} className="flex items-center gap-2 rounded-xl bg-purple-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+            <UserPlus size={16} /> Add walk-in
+          </button>
+        </div>
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <div className="min-w-[640px]">
+            <div className="grid border-b border-gray-200 bg-gray-50" style={{ gridTemplateColumns: `64px repeat(${techs.length}, 1fr)` }}>
+              <div className="px-2 py-2 text-xs font-medium text-gray-400">Time</div>
+              {techs.map((t) => (
+                <div key={t.id} className="border-l border-gray-200 px-3 py-2">
+                  <div className="text-sm font-semibold">{t.name}</div>
+                  <Badge tone={t.employmentType === "W2" ? "blue" : "purple"}>{t.employmentType === "W2" ? "W-2" : "1099"}</Badge>
+                </div>
+              ))}
+            </div>
+            {SLOTS.map((slot) => (
+              <div key={slot} className="grid border-b border-gray-100" style={{ gridTemplateColumns: `64px repeat(${techs.length}, 1fr)` }}>
+                <div className="px-2 py-2 text-xs text-gray-400">{slot}</div>
+                {techs.map((t) => {
+                  const appt = appts.find((a) => a.techId === t.id && a.time === slot);
+                  const s = appt ? STATUS[appt.status] : null;
+                  const Icon = s?.icon;
+                  return (
+                    <div key={t.id} className="border-l border-gray-100 p-1">
+                      {appt && s ? (
+                        <div className={`h-full rounded-lg border p-2 ${s.cell}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold">{appt.client}</span>
+                            <Icon size={12} className="text-gray-500" />
+                          </div>
+                          <div className="text-[11px] text-gray-500">{appt.service}</div>
+                          {appt.status !== "done" && (
+                            <button onClick={() => onCheckout(appt)} className="mt-1 w-full rounded-md bg-white/70 py-1 text-[11px] font-medium text-purple-700 ring-1 ring-purple-200">
+                              Check out →
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+        {Object.values(STATUS).map((s) => (
+          <span key={s.label} className="flex items-center gap-1.5"><span className={`h-3 w-3 rounded border ${s.cell}`} />{s.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Hoisted so it keeps a stable identity across renders (inputs stay focused).
+const MoneyInput = ({ label, icon: Icon, value, set }) => (
+  <label className="block">
+    <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500"><Icon size={13} /> {label}</span>
+    <div className="flex items-center rounded-xl border border-gray-200 px-3 py-2">
+      <span className="text-gray-400">$</span>
+      <input type="number" min="0" step="0.01" value={(value / 100).toString()}
+        onChange={(e) => set(Math.round(parseFloat(e.target.value || "0") * 100))}
+        className="w-full bg-transparent pl-1 text-sm outline-none" />
+    </div>
+  </label>
+);
+
+// ---- Checkout -------------------------------------------------------------
+function Checkout({ techs, config, user, pending, clearPending, onComplete }) {
+  const isTech = user?.role === "TECH";
+  const defaultTech = pending?.techId || (isTech ? user.id : techs[0].id);
+  const [techId, setTechId] = useState(defaultTech);
+  const [service, setService] = useState(8000);
+  const [retail, setRetail] = useState(2000);
+  const [ccTip, setCcTip] = useState(1500);
+  const [cashTip, setCashTip] = useState(0);
+  const [done, setDone] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    if (pending?.techId) setTechId(pending.techId);
+  }, [pending]);
+
+  const tech = techs.find((t) => t.id === techId) || techs[0];
+  const ticket = { service, retail, ccTip, cashTip };
+  const isW2 = tech.employmentType === "W2";
+  const w2 = useMemo(() => computeW2Ticket(ticket, tech, config), [service, retail, ccTip, cashTip, tech, config]);
+  const renter = useMemo(() => computeRenterPayout(ticket, config), [service, retail, ccTip, cashTip, config]);
+
+  const ticketTotal = service + retail + ccTip;
+
+  const completeSale = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const lineItems = [];
+      if (service > 0) lineItems.push({ kind: "SERVICE", description: "Service", amountCents: service });
+      if (retail > 0) lineItems.push({ kind: "RETAIL", description: "Retail", amountCents: retail });
+      const tips = [];
+      if (ccTip > 0) tips.push({ method: "CARD", amountCents: ccTip });
+      if (cashTip > 0) tips.push({ method: "CASH", amountCents: cashTip });
+      await onComplete({ techId, appointmentId: pending?.id ?? null, lineItems, tips });
+      setDone({ name: tech.name, isW2, amount: isW2 ? w2.techTakeHome : renter.instantPayout });
+      clearPending();
+      setService(0);
+      setRetail(0);
+      setCcTip(0);
+      setCashTip(0);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {done && (
+        <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <span className="flex items-center gap-2 text-sm font-medium text-emerald-800">
+            <CheckCircle2 size={16} /> Sale recorded for {done.name} — {done.isW2 ? "commission" : "instant payout"} {fmt(done.amount)}. It now shows on the dashboards.
+          </span>
+          <button onClick={() => setDone(null)} className="text-xs font-medium text-emerald-700">Dismiss</button>
+        </div>
+      )}
+      {err && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">Checkout failed: {err}</div>
+      )}
+      {pending && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">
+          Checking out <span className="font-semibold">{pending.client}</span> · {pending.service}
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="mb-4 text-lg font-bold">Ticket</h2>
+          <label className="mb-4 block">
+            <span className="mb-1 block text-xs font-medium text-gray-500">Assigned tech</span>
+            <select value={techId} onChange={(e) => setTechId(e.target.value)} disabled={isTech}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500">
+              {(isTech ? techs.filter((t) => t.id === user.id) : techs).map((t) => (
+                <option key={t.id} value={t.id}>{t.name} ({t.employmentType === "W2" ? "W-2" : "1099"})</option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <MoneyInput label="Service" icon={Scissors} value={service} set={setService} />
+            <MoneyInput label="Retail" icon={Package} value={retail} set={setRetail} />
+            <MoneyInput label="Card tip" icon={CreditCard} value={ccTip} set={setCcTip} />
+            <MoneyInput label="Cash tip" icon={Banknote} value={cashTip} set={setCashTip} />
+          </div>
+          <div className="mt-4 rounded-xl bg-gray-50 p-3">
+            <Row label="Ticket charged to card" value={fmt(ticketTotal)} strong />
+            <p className="mt-1 text-xs text-gray-400">Cash tip ({fmt(cashTip)}) handed directly to tech — not on the card.</p>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold">{isW2 ? "Commission Breakdown" : "Instant Payout"}</h2>
+            <Badge tone={isW2 ? "blue" : "purple"}>{isW2 ? "W-2 path" : "1099 path"}</Badge>
+          </div>
+
+          {isW2 ? (
+            <div>
+              <Row label="Gross service" value={fmt(service)} />
+              <Row label={`Card fee (${pct(config.ccFeePctBps)} + ${fmt(config.ccFeeFixedCents)})`} value={`- ${fmt(w2.ccFeeOnService)}`} tone="neg" />
+              <Row label={`Product cost (${pct(config.productCostPctBps)})`} value={`- ${fmt(w2.productCost)}`} tone="neg" />
+              <div className="my-1 border-t border-dashed border-gray-200" />
+              <Row label="Net service revenue" value={fmt(w2.netService)} strong />
+              <Row label={`Service commission (${pct(tech.serviceCommissionBps)})`} value={fmt(w2.serviceCommission)} tone="pos" />
+              <Row label={`Retail commission (${pct(tech.retailCommissionBps)})`} value={fmt(w2.retailCommission)} tone="pos" />
+              <Row label="Card tip (100% to tech)" value={fmt(w2.cardTip)} tone="pos" />
+              <Row label="Cash tip" value={fmt(w2.cashTip)} tone="pos" />
+              <div className="my-1 border-t border-gray-200" />
+              <Row label="Tech earns this ticket" value={fmt(w2.techTakeHome)} strong />
+              <div className="mt-4 flex items-start gap-2 rounded-xl bg-blue-50 p-3 text-xs text-blue-800">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>Commission accrues to payroll. Final pay is re-checked against the minimum-wage floor &amp; overtime each workweek (see Dashboard).</span>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Row label="Gross service" value={fmt(service)} />
+              <Row label="Card tip" value={fmt(ccTip)} />
+              <Row label="Card processing fee" value={`- ${fmt(renter.cardFee)}`} tone="neg" />
+              <div className="my-1 border-t border-gray-200" />
+              <Row label="Instant payout → contractor bank" value={fmt(renter.instantPayout)} strong tone="pos" />
+              <Row label="Cash tip (already with tech)" value={fmt(renter.cashTip)} />
+              <Row label="Retail → salon" value={fmt(renter.salonRetail)} />
+              <div className="mt-4 flex items-start gap-2 rounded-xl bg-purple-50 p-3 text-xs text-purple-800">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>No commission split — booth renter keeps gross service. Salon earns via chair rent, billed separately as a recurring charge.</span>
+              </div>
+            </div>
+          )}
+          <button onClick={completeSale} disabled={busy || service + retail === 0}
+            className="mt-4 w-full rounded-xl bg-purple-600 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+            {busy ? "Processing…" : isW2 ? "Complete sale & record commission" : "Complete sale & send instant payout"}
+          </button>
+          {service + retail === 0 && <p className="mt-2 text-center text-xs text-gray-400">Add a service or retail amount to check out.</p>}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ---- Tech Dashboard -------------------------------------------------------
+function Dashboard({ techs, config, tickets, user }) {
+  const isTech = user?.role === "TECH";
+  // A tech can only see their own earnings; managers can pick any tech.
+  const visibleTechs = isTech ? techs.filter((t) => t.id === user.id) : techs;
+  const [techId, setTechId] = useState(isTech ? user.id : techs[0].id);
+  const [pay, setPay] = useState(null);
+  const [clk, setClk] = useState(null);
+  const [clkBusy, setClkBusy] = useState(false);
+  const [clkErr, setClkErr] = useState(null);
+  const tech = techs.find((t) => t.id === techId) || techs[0];
+  const isW2 = tech.employmentType === "W2";
+  const myTickets = tickets.filter((t) => t.techId === techId);
+
+  useEffect(() => {
+    let active = true;
+    setPay(null);
+    setClk(null);
+    setClkErr(null);
+    if (isW2) {
+      api.getPayroll(api.workweekStart(), techId).then((p) => active && setPay(p)).catch(() => active && setPay(null));
+      api.clockStatus(techId, api.todayISO()).then((s) => active && setClk(s)).catch(() => active && setClk(null));
+    }
+    return () => {
+      active = false;
+    };
+  }, [techId, isW2]);
+
+  const doClock = async (dir) => {
+    setClkBusy(true);
+    setClkErr(null);
+    try {
+      setClk(dir === "in" ? await api.clockIn(techId) : await api.clockOut(techId));
+    } catch (e) {
+      setClkErr(e.message || String(e));
+    } finally {
+      setClkBusy(false);
+    }
+  };
+
+  const totals = myTickets.reduce(
+    (acc, t) => {
+      if (isW2) {
+        const b = computeW2Ticket(t, tech, config);
+        acc.service += b.serviceCommission;
+        acc.retail += b.retailCommission;
+      } else {
+        const p = computeRenterPayout(t, config);
+        acc.service += p.instantPayout;
+      }
+      acc.ccTip += t.ccTip;
+      acc.cashTip += t.cashTip;
+      return acc;
+    },
+    { service: 0, retail: 0, ccTip: 0, cashTip: 0 }
+  );
+  const tips = totals.ccTip + totals.cashTip;
+  const earned = totals.service + totals.retail + tips;
+  const f = flsaView(pay);
+
+  const Stat = ({ label, value, sub, tone = "gray" }) => (
+    <Card className="p-4">
+      <div className="text-xs font-medium text-gray-500">{label}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${tone === "pos" ? "text-emerald-600" : ""}`}>{value}</div>
+      {sub && <div className="mt-0.5 text-xs text-gray-400">{sub}</div>}
+    </Card>
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold">Tech Dashboard</h2>
+          <p className="text-sm text-gray-500">Real-time daily earnings — keeps the end-of-week paycheck honest.</p>
+        </div>
+        <select value={techId} onChange={(e) => setTechId(e.target.value)} disabled={isTech}
+          className="rounded-xl border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500">
+          {visibleTechs.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </div>
+
+      {isW2 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock size={16} className={clk?.clockedIn ? "text-emerald-600" : "text-gray-400"} />
+              <div>
+                <div className="text-sm font-semibold">{clk?.clockedIn ? "Clocked in" : "Clocked out"}</div>
+                <div className="text-xs text-gray-400">
+                  {clk
+                    ? `${clk.hoursToday.toFixed(2)} h today${clk.since ? ` · since ${new Date(clk.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
+                    : "—"}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {clkErr && <span className="text-xs text-rose-600">{clkErr}</span>}
+              {clk?.clockedIn ? (
+                <button onClick={() => doClock("out")} disabled={clkBusy}
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-50">
+                  {clkBusy ? "…" : "Clock out"}
+                </button>
+              ) : (
+                <button onClick={() => doClock("in")} disabled={clkBusy}
+                  className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                  {clkBusy ? "…" : "Clock in"}
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Earned today" value={fmt(earned)} tone="pos" sub={`${myTickets.length} tickets`} />
+        <Stat label={isW2 ? "Service commission" : "Service payout"} value={fmt(totals.service)} />
+        <Stat label="Retail commission" value={fmt(totals.retail)} sub={isW2 ? "" : "n/a for 1099"} />
+        <Stat label="Tips (card + cash)" value={fmt(tips)} sub={`${fmt(totals.ccTip)} card · ${fmt(totals.cashTip)} cash`} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card className="p-5">
+          <h3 className="mb-3 font-semibold">Service vs Retail</h3>
+          <SplitBar service={totals.service} retail={totals.retail} />
+          <Row label="Service" value={fmt(totals.service)} />
+          <Row label="Retail" value={fmt(totals.retail)} />
+          <Row label="Tips" value={fmt(tips)} />
+        </Card>
+
+        {isW2 ? (
+          <Card className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <h3 className="font-semibold">Weekly FLSA check</h3>
+              {f && <Badge tone={f.topUp > 0 ? "amber" : "green"}>{f.topUp > 0 ? "Floor applied" : "Above floor"}</Badge>}
+            </div>
+            {f ? (
+              <>
+                <Row label="Hours this week" value={`${f.hours.toFixed(1)} h`} />
+                <Row label="Commission wages" value={fmt(f.commission)} />
+                <Row label={`Min-wage floor (${fmt(config.minWageCentsPerHour)}/h)`} value={fmt(f.floor)} />
+                {f.topUp > 0 && <Row label="Min-wage top-up" value={`+ ${fmt(f.topUp)}`} tone="pos" />}
+                {f.otHours > 0 && <Row label={`Overtime premium (${f.otHours.toFixed(1)} h @ ½ rate)`} value={`+ ${fmt(f.otPremium)}`} tone="pos" />}
+                <div className="my-1 border-t border-gray-200" />
+                <Row label="Projected weekly gross" value={fmt(f.gross)} strong />
+                <p className="mt-2 text-xs text-gray-400">Regular rate {fmt(f.rate)}/h. From the payroll endpoint (commission records + time entries).</p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">No payroll data for this week yet (needs commission records + clocked hours).</p>
+            )}
+          </Card>
+        ) : (
+          <Card className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Building2 size={16} /><h3 className="font-semibold">Booth rent</h3>
+            </div>
+            <Row label="Chair rent" value={`${fmt(tech.rentCents || 0)} / ${(tech.rentCadence || "WEEKLY").toLowerCase()}`} />
+            <Row label="Next charge" value="Mon, auto-debit" />
+            <div className="my-1 border-t border-gray-200" />
+            <Row label="Service payouts go to" value="Connected bank (instant)" />
+            <p className="mt-2 text-xs text-gray-400">No hours tracked for wage purposes — 1099 contractor.</p>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SplitBar({ service, retail }) {
+  const total = Math.max(1, service + retail);
+  const sPct = (service / total) * 100;
+  return (
+    <div className="mb-3 flex h-3 overflow-hidden rounded-full bg-gray-100">
+      <div className="bg-purple-500" style={{ width: `${sPct}%` }} />
+      <div className="bg-pink-400" style={{ width: `${100 - sPct}%` }} />
+    </div>
+  );
+}
+
+// ---- Owner: revenue separation, payroll export, tip pool ------------------
+function Owner({ techs, config, tickets, today }) {
+  const [payroll, setPayroll] = useState([]); // WorkweekPay[]
+  const [pool, setPool] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getPayroll(api.workweekStart()).then((d) => setPayroll(Array.isArray(d) ? d : [d])).catch(() => setPayroll([]));
+    api.getTipPool(today).then(setPool).catch(() => setPool(null));
+  }, [today]);
+
+  const commitPayroll = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.commitPayroll(api.workweekStart());
+      setMsg(`Payroll committed — ${r.lines.length} line(s) for ${r.startsOn} → ${r.endsOn} (period locked).`);
+    } catch (e) {
+      setMsg(`Commit failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const finalizePool = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.commitTipPool(today);
+      setMsg(r.alreadyExisted ? "Tip pool was already finalized for today." : `Tip pool finalized — ${r.shares.length} share(s) written.`);
+    } catch (e) {
+      setMsg(`Finalize failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const streams = tickets.reduce(
+    (a, t) => {
+      a.grossService += t.service;
+      a.retail += t.retail;
+      a.cardTip += t.ccTip;
+      a.cashTip += t.cashTip;
+      return a;
+    },
+    { grossService: 0, retail: 0, cardTip: 0, cashTip: 0 }
+  );
+
+  const payRows = payroll.map((wp) => ({ name: wp.techName, ...flsaView(wp) }));
+  const payrollTotal = payRows.reduce((s, r) => s + (r?.gross || 0), 0);
+
+  const exportCsv = () => {
+    const usd = (c) => (c / 100).toFixed(2);
+    const head = ["Employee", "Hours", "Commission", "MinWageTopUp", "OvertimePremium", "GrossPay"];
+    const lines = payRows.map((r) =>
+      [r.name, r.hours.toFixed(2), usd(r.commission), usd(r.topUp), usd(r.otPremium), usd(r.gross)]
+        .map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v))
+        .join(",")
+    );
+    const csv = [head.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `payroll_${api.workweekStart()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const rentRows = techs
+    .filter((t) => t.employmentType === "1099")
+    .map((t) => {
+      const payout = tickets
+        .filter((k) => k.techId === t.id)
+        .reduce((s, k) => s + computeRenterPayout(k, config).instantPayout, 0);
+      return { tech: t, payout };
+    });
+
+  const StreamCard = ({ icon: Icon, label, value, tone, note }) => (
+    <Card className="p-4">
+      <div className="flex items-center gap-2 text-xs font-medium text-gray-500"><Icon size={14} className={tone} /> {label}</div>
+      <div className="mt-1 text-2xl font-bold tabular-nums">{fmt(value)}</div>
+      {note && <div className="mt-0.5 text-xs text-gray-400">{note}</div>}
+    </Card>
+  );
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-bold">Owner — Revenue &amp; Payroll</h2>
+        <p className="text-sm text-gray-500">Revenue streams are tracked separately to protect margin and keep payroll/1099 reporting clean.</p>
+      </div>
+      {msg && <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-600">{msg}</div>}
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StreamCard icon={Scissors} label="Gross service revenue" value={streams.grossService} tone="text-purple-500" note="Labor" />
+        <StreamCard icon={Package} label="Retail revenue" value={streams.retail} tone="text-pink-500" note="Product sales" />
+        <StreamCard icon={CreditCard} label="Card tips" value={streams.cardTip} tone="text-blue-500" note="Via gateway" />
+        <StreamCard icon={Banknote} label="Cash tips" value={streams.cashTip} tone="text-emerald-500" note="Reported only" />
+      </div>
+
+      <Card className="p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2"><FileSpreadsheet size={16} /><h3 className="font-semibold">W-2 payroll export (this week)</h3></div>
+          <div className="flex items-center gap-2">
+            <button onClick={commitPayroll} disabled={busy} className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+              {busy ? "Working…" : "Generate & lock payroll"}
+            </button>
+            <button onClick={exportCsv} disabled={payRows.length === 0} className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 disabled:opacity-50"><Download size={13} /> Export CSV</button>
+          </div>
+        </div>
+        {payRows.length === 0 ? (
+          <p className="text-sm text-gray-400">No payroll data yet this week.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-xs text-gray-400">
+                  <th className="py-2 font-medium">Employee</th>
+                  <th className="py-2 text-right font-medium">Hours</th>
+                  <th className="py-2 text-right font-medium">Commission</th>
+                  <th className="py-2 text-right font-medium">Min-wage top-up</th>
+                  <th className="py-2 text-right font-medium">OT premium</th>
+                  <th className="py-2 text-right font-medium">Gross pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payRows.map((r) => (
+                  <tr key={r.name} className="border-b border-gray-100">
+                    <td className="py-2 font-medium">{r.name}</td>
+                    <td className="py-2 text-right tabular-nums">{r.hours.toFixed(1)}</td>
+                    <td className="py-2 text-right tabular-nums">{fmt(r.commission)}</td>
+                    <td className={`py-2 text-right tabular-nums ${r.topUp > 0 ? "text-amber-600" : "text-gray-400"}`}>{r.topUp > 0 ? `+ ${fmt(r.topUp)}` : "—"}</td>
+                    <td className={`py-2 text-right tabular-nums ${r.otPremium > 0 ? "text-emerald-600" : "text-gray-400"}`}>{r.otPremium > 0 ? `+ ${fmt(r.otPremium)}` : "—"}</td>
+                    <td className="py-2 text-right font-bold tabular-nums">{fmt(r.gross)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="py-2 font-semibold" colSpan={5}>Total payroll liability</td>
+                  <td className="py-2 text-right font-bold tabular-nums">{fmt(payrollTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-2 text-xs text-gray-400">Held in the salon merchant account; this file goes to your payroll provider. Not paid as instant payout.</p>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2"><Building2 size={16} /><h3 className="font-semibold">1099 contractors</h3></div>
+          {rentRows.length === 0 && <p className="text-sm text-gray-400">No booth renters configured.</p>}
+          {rentRows.map((r) => (
+            <div key={r.tech.id} className="border-b border-gray-100 py-2 last:border-0">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{r.tech.name}</span>
+                <Badge tone="purple">1099</Badge>
+              </div>
+              <Row label="Instant payouts sent" value={fmt(r.payout)} tone="pos" />
+              <Row label="Chair rent owed" value={`${fmt(r.tech.rentCents || 0)} / ${(r.tech.rentCadence || "WEEKLY").toLowerCase()}`} />
+            </div>
+          ))}
+          <p className="mt-2 text-xs text-gray-400">Rent billed via recurring charge; service revenue already routed to their bank.</p>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2"><Coins size={16} /><h3 className="font-semibold">Tip pool (today)</h3></div>
+            <div className="flex items-center gap-2">
+              {config.tipPoolingEnabled && (
+                <button onClick={finalizePool} disabled={busy} className="rounded-lg bg-purple-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50">
+                  Finalize
+                </button>
+              )}
+              <Badge tone={config.tipPoolingEnabled ? "green" : "gray"}>{config.tipPoolingEnabled ? "Pooling ON" : "Pooling OFF"}</Badge>
+            </div>
+          </div>
+          {config.tipPoolingEnabled ? (
+            <>
+              <Row label="W-2 card tips pooled" value={fmt(pool?.totalCardTipsCents || 0)} strong />
+              <div className="my-1 border-t border-dashed border-gray-200" />
+              {(pool?.shares || []).map((p) => (
+                <Row key={p.techId} label={`${p.techName} · ${p.hours}h`} value={fmt(p.shareCents)} tone="pos" />
+              ))}
+              {(!pool || pool.shares.length === 0) && <p className="text-xs text-gray-400">No clocked W-2 hours today to split against.</p>}
+              <p className="mt-2 text-xs text-gray-400">Split by hours, largest-remainder so shares sum exactly to the pool. 1099 contractors &amp; owners excluded by law.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500">Direct tips: 100% of each card tip stays with the tech who did the service.</p>
+              <div className="mt-2 flex items-start gap-2 rounded-xl bg-gray-50 p-3 text-xs text-gray-500">
+                <Users size={14} className="mt-0.5 shrink-0" />
+                <span>Turn on tip pooling in Admin Config to split daily card tips across W-2 staff by hours.</span>
+              </div>
+            </>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ---- Admin Config ---------------------------------------------------------
+// Hoisted for stable identity (keeps focus while typing).
+const CfgNum = ({ label, value, onChange, suffix, step = "1" }) => (
+  <label className="block">
+    <span className="mb-1 block text-xs font-medium text-gray-500">{label}</span>
+    <div className="flex items-center rounded-xl border border-gray-200 px-3 py-2">
+      <input type="number" step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value || "0"))}
+        className="w-full bg-transparent text-sm outline-none" />
+      {suffix && <span className="text-xs text-gray-400">{suffix}</span>}
+    </div>
+  </label>
+);
+
+function Admin({ config, techs, onSaveSettings, onSaveComp }) {
+  const [cfg, setCfg] = useState(config);
+  const [savingCfg, setSavingCfg] = useState(false);
+  const [draft, setDraft] = useState({}); // staffId -> partial overrides
+  const [savingId, setSavingId] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => setCfg(config), [config]);
+
+  const setField = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
+  const saveSettings = async () => {
+    setSavingCfg(true);
+    setMsg(null);
+    try {
+      await onSaveSettings(cfg);
+      setMsg("Settings saved.");
+    } catch (e) {
+      setMsg(`Save failed: ${e.message}`);
+    } finally {
+      setSavingCfg(false);
+    }
+  };
+
+  const draftFor = (t) => ({
+    employmentType: t.employmentType,
+    serviceCommissionBps: t.serviceCommissionBps,
+    retailCommissionBps: t.retailCommissionBps,
+    rentCents: t.rentCents,
+    rentCadence: t.rentCadence || "WEEKLY",
+    ...(draft[t.id] || {}),
+  });
+  const setDraftField = (id, patch) => setDraft((d) => ({ ...d, [id]: { ...(d[id] || {}), ...patch } }));
+  const saveComp = async (t) => {
+    const d = draftFor(t);
+    const body =
+      d.employmentType === "W2"
+        ? { employmentType: "W2", serviceCommissionBps: d.serviceCommissionBps ?? 0, retailCommissionBps: d.retailCommissionBps ?? 0 }
+        : { employmentType: "1099", rentAmountCents: d.rentCents ?? 0, rentCadence: (d.rentCadence || "WEEKLY").toUpperCase() };
+    setSavingId(t.id);
+    setMsg(null);
+    try {
+      await onSaveComp(t.id, body);
+      setDraft((dd) => {
+        const n = { ...dd };
+        delete n[t.id];
+        return n;
+      });
+      setMsg(`${t.name} updated.`);
+    } catch (e) {
+      setMsg(`Save failed: ${e.message}`);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {msg && <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-600">{msg}</div>}
+
+      <Card className="p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold">Salon settings</h2>
+            <p className="text-sm text-gray-500">Overhead and compliance defaults applied across checkout.</p>
+          </div>
+          <button onClick={saveSettings} disabled={savingCfg} className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            {savingCfg ? "Saving…" : "Save settings"}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <CfgNum label="Card fee %" value={cfg.ccFeePctBps / 100} suffix="%" step="0.01" onChange={(v) => setField("ccFeePctBps", Math.round(v * 100))} />
+          <CfgNum label="Card fee fixed" value={cfg.ccFeeFixedCents / 100} suffix="$" step="0.01" onChange={(v) => setField("ccFeeFixedCents", Math.round(v * 100))} />
+          <CfgNum label="Product cost %" value={cfg.productCostPctBps / 100} suffix="%" step="0.5" onChange={(v) => setField("productCostPctBps", Math.round(v * 100))} />
+          <CfgNum label="Local min wage" value={cfg.minWageCentsPerHour / 100} suffix="$/h" step="0.25" onChange={(v) => setField("minWageCentsPerHour", Math.round(v * 100))} />
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-gray-500">Timezone (workweek anchor)</span>
+            <select value={cfg.timezone || "America/New_York"} onChange={(e) => setField("timezone", e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm">
+              {(["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "America/Anchorage", "Pacific/Honolulu"].includes(cfg.timezone)
+                ? ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "America/Anchorage", "Pacific/Honolulu"]
+                : [cfg.timezone || "America/New_York", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "America/Anchorage", "Pacific/Honolulu"]
+              ).map((z) => <option key={z} value={z}>{z}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 p-3">
+          <span>
+            <span className="block text-sm font-medium">Tip pooling (W-2 staff)</span>
+            <span className="block text-xs text-gray-400">Pool card tips daily, split by hours. Excludes 1099 contractors &amp; owners by law.</span>
+          </span>
+          <button onClick={() => setField("tipPoolingEnabled", !cfg.tipPoolingEnabled)}
+            className={`relative h-6 w-11 rounded-full ${cfg.tipPoolingEnabled ? "bg-purple-600" : "bg-gray-300"}`}>
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${cfg.tipPoolingEnabled ? "left-5" : "left-0.5"}`} />
+          </button>
+        </label>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="mb-1 text-lg font-bold">Employee profiles</h2>
+        <p className="mb-4 text-sm text-gray-500">Toggle W-2 vs 1099 — it switches the entire payout &amp; compliance path. Save writes a new profile version.</p>
+        <div className="space-y-3">
+          {techs.map((t) => {
+            const d = draftFor(t);
+            const w2 = d.employmentType === "W2";
+            const dirty = !!draft[t.id];
+            return (
+              <div key={t.id} className="rounded-xl border border-gray-200 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="font-semibold">{t.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex rounded-lg bg-gray-100 p-0.5 text-xs font-medium">
+                      <button onClick={() => setDraftField(t.id, { employmentType: "W2" })}
+                        className={`rounded-md px-3 py-1 ${w2 ? "bg-white text-blue-700 shadow-sm" : "text-gray-500"}`}>W-2 Employee</button>
+                      <button onClick={() => setDraftField(t.id, { employmentType: "1099" })}
+                        className={`rounded-md px-3 py-1 ${!w2 ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>1099 Renter</button>
+                    </div>
+                    <button onClick={() => saveComp(t)} disabled={!dirty || savingId === t.id}
+                      className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                      {savingId === t.id ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+                {w2 ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <CfgNum label="Service commission %" value={(d.serviceCommissionBps || 0) / 100} suffix="%" onChange={(v) => setDraftField(t.id, { serviceCommissionBps: Math.round(v * 100) })} />
+                    <CfgNum label="Retail commission %" value={(d.retailCommissionBps || 0) / 100} suffix="%" onChange={(v) => setDraftField(t.id, { retailCommissionBps: Math.round(v * 100) })} />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <CfgNum label="Chair rent" value={(d.rentCents || 0) / 100} suffix="$" step="10" onChange={(v) => setDraftField(t.id, { rentCents: Math.round(v * 100) })} />
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-gray-500">Rent cadence</span>
+                      <select value={d.rentCadence || "WEEKLY"} onChange={(e) => setDraftField(t.id, { rentCadence: e.target.value })}
+                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm">
+                        <option value="WEEKLY">Weekly</option>
+                        <option value="MONTHLY">Monthly</option>
+                      </select>
+                    </label>
+                  </div>
+                )}
+                <div className="mt-2 text-xs text-gray-400">
+                  {w2 ? "Hours tracked · paid via payroll export · min-wage + OT protected" : "No wage hours · instant payouts · flat rent"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}

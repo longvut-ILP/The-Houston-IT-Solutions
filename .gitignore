@@ -1,0 +1,17 @@
+# Dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secrets / local env (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS cruft
+.DS_Store
+Thumbs.db
