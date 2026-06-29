@@ -141,7 +141,7 @@ export function createApp() {
   // CORS — open in dev so the browser UI (different origin) can call the API.
   // Lock the allowed origin down before production.
   app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || (req.headers.origin as string) || "*");
+    res.header("Access-Control-Allow-Origin", (req.headers.origin as string) || process.env.CORS_ORIGIN || "*");
     res.header("Vary", "Origin");
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
