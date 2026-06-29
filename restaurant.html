@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Counter POS — Restaurant</title>
+<script>
+  // Point this at your deployed restaurant API (Vercel). Override before load if needed.
+  window.__RESTO_API__ = window.__RESTO_API__ || "https://restaurant-pos-api.vercel.app";
+</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-stone-100">
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+const API_BASE = window.__RESTO_API__;
+
+// ---- icon shims (emoji) ----
+const ICON = { Cup:"☕", Bag:"🛍️", Fire:"🔥", Cash:"💵", Card:"💳", Gear:"⚙️", Chart:"📊",
+  Menu:"📋", Lock:"🔒", Logout:"🚪", Refresh:"🔄", Plus:"➕", Check:"✅", Bell:"🔔", People:"👥" };
+const I = (g) => ({size=16}) => <span style={{fontSize:size+"px",lineHeight:1}}>{g}</span>;
+
+// ---- session ----
+let _token = null, _user = null;
+const setSession = (r) => { _token = r.token; _user = r.staff; };
+const clearSession = () => { _token = null; _user = null; };
+const rid = () => _user && _user.restaurantId;
+
+async function request(path, opts={}) {
+  const headers = { "content-type":"application/json", ...(opts.headers||{}) };
+  if (_token) headers.authorization = `Bearer ${_token}`;
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(()=> ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+  return data;
+}
+const api = {
+  login: async (email,password) => { const r=await request(`/auth/login`,{method:"POST",body:JSON.stringify({email,password})}); setSession(r); return r.staff; },
+  register: async (b) => { const r=await request(`/auth/register-restaurant`,{method:"POST",body:JSON.stringify(b)}); setSession(r); return r.staff; },
+  logout: () => clearSession(),
+  getMenu: () => request(`/restaurants/${rid()}/menu`),
+  addCategory: (name) => request(`/menu/categories`,{method:"POST",body:JSON.stringify({name})}),
+  addItem: (b) => request(`/menu/items`,{method:"POST",body:JSON.stringify(b)}),
+  updateItem: (id,b) => request(`/menu/items/${id}`,{method:"PATCH",body:JSON.stringify(b)}),
+  getSettings: () => request(`/restaurants/${rid()}/settings`),
+  putSettings: (b) => request(`/restaurants/${rid()}/settings`,{method:"PUT",body:JSON.stringify(b)}),
+  getStaff: () => request(`/restaurants/${rid()}/staff`),
+  addStaff: (b) => request(`/staff`,{method:"POST",body:JSON.stringify(b)}),
+  setStaffPassword: (id,password) => request(`/staff/${id}/credential`,{method:"POST",body:JSON.stringify({password})}),
+  createOrder: (b) => request(`/orders`,{method:"POST",body:JSON.stringify(b)}),
+  listOrders: (status) => request(`/orders?status=${encodeURIComponent(status)}`),
+  readyOrder: (id) => request(`/orders/${id}/ready`,{method:"POST"}),
+  checkout: (id,b) => request(`/orders/${id}/checkout`,{method:"POST",body:JSON.stringify(b)}),
+  report: (since) => request(`/reports/sales?since=${encodeURIComponent(since)}`),
+};
+
+const money = (c) => (c<0?"-$":"$") + (Math.abs(c)/100).toFixed(2);
+const todayStartISO = () => { const d=new Date(); d.setHours(0,0,0,0); return d.toISOString(); };
+
+// ---- small UI ----
+const Card = ({children,className=""}) => <div className={`rounded-2xl border border-stone-200 bg-white ${className}`}>{children}</div>;
+const Badge = ({children,tone="amber"}) => {
+  const t={amber:"bg-amber-100 text-amber-800",green:"bg-emerald-100 text-emerald-700",blue:"bg-sky-100 text-sky-700",gray:"bg-stone-100 text-stone-600",red:"bg-rose-100 text-rose-700"}[tone];
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${t}`}>{children}</span>;
+};
+const Btn = ({children,onClick,disabled,tone="amber",className=""}) => {
+  const t={amber:"bg-amber-600 text-white",ghost:"border border-stone-300 text-stone-700 bg-white",dark:"bg-stone-800 text-white",green:"bg-emerald-600 text-white"}[tone];
+  return <button onClick={onClick} disabled={disabled} className={`rounded-xl px-3 py-2 text-sm font-semibold disabled:opacity-50 ${t} ${className}`}>{children}</button>;
+};
+
+// ---- login / create restaurant ----
+const TZ = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Phoenix","Pacific/Honolulu"];
+function Login({ onAuthed }) {
+  const [mode,setMode]=useState("signin");
+  const [email,setEmail]=useState("owner@bayoubrew.test");
+  const [password,setPassword]=useState("");
+  const [rn,setRn]=useState(""); const [on,setOn]=useState(""); const [tz,setTz]=useState("America/Chicago");
+  const [busy,setBusy]=useState(false); const [err,setErr]=useState(null);
+  const signup = mode==="signup";
+  const submit = async (e) => { e.preventDefault(); setBusy(true); setErr(null);
+    try { if(signup){ await api.register({restaurantName:rn.trim(),ownerName:on.trim(),ownerEmail:email.trim(),password,timezone:tz}); } else { await api.login(email,password);} onAuthed(); }
+    catch(e2){ setErr(e2.message||String(e2)); } finally { setBusy(false); } };
+  const ok = signup ? (rn.trim()&&on.trim()&&email.trim()&&password.length>=6) : password;
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4 py-8">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white text-lg">🍳</div>
+          <div><div className="text-sm font-bold">Counter POS</div><div className="text-xs text-stone-500">{signup?"Create your restaurant":"Sign in"}</div></div>
+        </div>
+        <div className="mb-5 flex rounded-lg bg-stone-100 p-0.5 text-xs font-semibold">
+          <button type="button" onClick={()=>{setMode("signin");setErr(null);}} className={`flex-1 rounded-md px-3 py-1.5 ${!signup?"bg-white text-amber-700 shadow-sm":"text-stone-500"}`}>Sign in</button>
+          <button type="button" onClick={()=>{setMode("signup");setErr(null);setEmail("");}} className={`flex-1 rounded-md px-3 py-1.5 ${signup?"bg-white text-amber-700 shadow-sm":"text-stone-500"}`}>Create restaurant</button>
+        </div>
+        {signup && <>
+          <Field label="Restaurant name"><input value={rn} onChange={e=>setRn(e.target.value)} placeholder="Bayou Brew" className="inp"/></Field>
+          <Field label="Your name (owner)"><input value={on} onChange={e=>setOn(e.target.value)} placeholder="Sam Lee" className="inp"/></Field>
+        </>}
+        <Field label="Email"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} className="inp"/></Field>
+        <Field label={signup?"Password (min 6)":"Password"}><input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="inp"/></Field>
+        {signup && <Field label="Timezone"><select value={tz} onChange={e=>setTz(e.target.value)} className="inp">{TZ.map(z=><option key={z} value={z}>{z}</option>)}</select></Field>}
+        {err && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+        <button type="submit" disabled={busy||!ok} className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-600 py-2.5 text-sm font-bold text-white disabled:opacity-50">🔒 {busy?(signup?"Creating…":"Signing in…"):(signup?"Create restaurant":"Sign in")}</button>
+      </form>
+    </div>
+  );
+}
+const Field = ({label,children}) => <label className="mb-3 block"><span className="mb-1 block text-xs font-semibold text-stone-500">{label}</span>{children}</label>;
+
+// ---- Order entry (POS) ----
+function OrderScreen({ menu, settings, onPlaced }) {
+  const [cat,setCat]=useState(menu.categories[0]?.id || null);
+  const [cart,setCart]=useState([]); // {id,name,priceCents,qty}
+  const [label,setLabel]=useState(""); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState(null);
+  const items = menu.items.filter(i=>!cat || i.categoryId===cat);
+  const add = (it) => setCart(c=>{ const f=c.find(x=>x.id===it.id); return f? c.map(x=>x.id===it.id?{...x,qty:x.qty+1}:x) : [...c,{id:it.id,name:it.name,priceCents:it.priceCents,qty:1}]; });
+  const dec = (id) => setCart(c=>c.flatMap(x=>x.id===id?(x.qty>1?[{...x,qty:x.qty-1}]:[]):[x]));
+  const sub = cart.reduce((s,x)=>s+x.priceCents*x.qty,0);
+  const tax = Math.round(sub*(settings.taxPctBps||0)/10000);
+  const total = sub+tax;
+  const place = async (send) => { if(!cart.length) return; setBusy(true); setMsg(null);
+    try { const r=await api.createOrder({customerLabel:label.trim()||null,send,lines:cart.map(x=>({menuItemId:x.id,quantity:x.qty}))});
+      setCart([]); setLabel(""); setMsg(`Order #${r.orderNumber} ${send?"sent to kitchen":"saved"} — ${money(r.totalCents)}`); onPlaced&&onPlaced(); }
+    catch(e){ setMsg("Error: "+e.message); } finally { setBusy(false); } };
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-2">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {menu.categories.map(c=> <button key={c.id} onClick={()=>setCat(c.id)} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${cat===c.id?"bg-amber-600 text-white":"bg-white border border-stone-200 text-stone-600"}`}>{c.name}</button>)}
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {items.map(it=> <button key={it.id} onClick={()=>add(it)} className="rounded-2xl border border-stone-200 bg-white p-4 text-left hover:border-amber-400">
+            <div className="font-semibold text-stone-800">{it.name}</div><div className="mt-1 text-amber-700 font-bold">{money(it.priceCents)}</div></button>)}
+          {items.length===0 && <div className="col-span-full text-sm text-stone-400">No items in this category yet — add some in the Menu tab.</div>}
+        </div>
+      </div>
+      <Card className="p-4 h-fit">
+        <div className="mb-2 text-lg font-bold">Current order</div>
+        <input value={label} onChange={e=>setLabel(e.target.value)} placeholder="Customer name (optional)" className="inp mb-3"/>
+        {cart.length===0 && <div className="py-6 text-center text-sm text-stone-400">Tap items to build the order.</div>}
+        <div className="space-y-2">{cart.map(x=> <div key={x.id} className="flex items-center justify-between">
+          <div><div className="font-medium text-stone-800">{x.name}</div><div className="text-xs text-stone-400">{money(x.priceCents)} each</div></div>
+          <div className="flex items-center gap-2"><button onClick={()=>dec(x.id)} className="h-7 w-7 rounded-lg border border-stone-300">–</button><span className="w-5 text-center">{x.qty}</span><button onClick={()=>add(x)} className="h-7 w-7 rounded-lg border border-stone-300">+</button><span className="w-16 text-right font-semibold">{money(x.priceCents*x.qty)}</span></div>
+        </div>)}</div>
+        {cart.length>0 && <div className="mt-3 border-t border-stone-200 pt-3 text-sm">
+          <Row k="Subtotal" v={money(sub)}/><Row k={`Tax (${(settings.taxPctBps/100).toFixed(2)}%)`} v={money(tax)}/>
+          <div className="mt-1 flex justify-between text-base font-bold"><span>Total</span><span>{money(total)}</span></div>
+        </div>}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Btn tone="ghost" onClick={()=>place(false)} disabled={busy||!cart.length}>Save</Btn>
+          <Btn onClick={()=>place(true)} disabled={busy||!cart.length}>{busy?"…":"Send to kitchen"}</Btn>
+        </div>
+        {msg && <div className="mt-3 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">{msg}</div>}
+      </Card>
+    </div>
+  );
+}
+const Row = ({k,v}) => <div className="flex justify-between text-stone-600"><span>{k}</span><span>{v}</span></div>;
+
+// ---- Kitchen display ----
+function Kitchen() {
+  const [orders,setOrders]=useState([]); const [err,setErr]=useState(null);
+  const load = async () => { try { setOrders(await api.listOrders("IN_KITCHEN")); setErr(null);} catch(e){ setErr(e.message);} };
+  useEffect(()=>{ load(); const t=setInterval(load, 8000); return ()=>clearInterval(t); },[]);
+  const ready = async (id) => { await api.readyOrder(id); load(); };
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between"><div className="text-lg font-bold">Kitchen — open tickets</div><Btn tone="ghost" onClick={load}>🔄 Refresh</Btn></div>
+      {err && <div className="mb-3 text-sm text-rose-600">{err}</div>}
+      {orders.length===0 && <Card className="p-6 text-sm text-stone-400">No tickets in the kitchen right now.</Card>}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {orders.map(o=> <Card key={o.id} className="p-4">
+          <div className="mb-2 flex items-center justify-between"><div className="font-bold">#{o.orderNumber}{o.customerLabel?` · ${o.customerLabel}`:""}</div><Badge tone="amber">cooking</Badge></div>
+          <div className="space-y-1 text-sm">{o.items.map(it=> <div key={it.id} className="flex justify-between"><span>{it.quantity}× {it.name}</span></div>)}</div>
+          <Btn tone="green" className="mt-3 w-full" onClick={()=>ready(o.id)}>✅ Mark ready</Btn>
+        </Card>)}
+      </div>
+    </div>
+  );
+}
+
+// ---- Checkout ----
+function Checkout({ settings }) {
+  const [orders,setOrders]=useState([]); const [sel,setSel]=useState(null);
+  const [tipPct,setTipPct]=useState(0); const [customTip,setCustomTip]=useState("");
+  const [method,setMethod]=useState("CARD"); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState(null); const [err,setErr]=useState(null);
+  const load = async () => { try { setOrders(await api.listOrders("OPEN,IN_KITCHEN,READY")); setErr(null);} catch(e){ setErr(e.message);} };
+  useEffect(()=>{ load(); },[]);
+  const order = orders.find(o=>o.id===sel) || null;
+  const baseTotal = order ? order.subtotalCents+order.taxCents : 0;
+  const tipCents = customTip!=="" ? Math.round(parseFloat(customTip||"0")*100) : Math.round((order?order.subtotalCents:0)*tipPct/100);
+  const grand = baseTotal + (isNaN(tipCents)?0:tipCents);
+  const pay = async () => { if(!order) return; setBusy(true); setMsg(null);
+    try { const r=await api.checkout(order.id,{method,tipCents:isNaN(tipCents)?0:tipCents}); setMsg(`Paid #${order.orderNumber}: ${money(r.totalCents)} (${method.toLowerCase()})`); setSel(null); setTipPct(0); setCustomTip(""); load(); }
+    catch(e){ setMsg("Error: "+e.message);} finally { setBusy(false);} };
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-2">
+        <div className="mb-3 flex items-center justify-between"><div className="text-lg font-bold">Open checks</div><Btn tone="ghost" onClick={load}>🔄 Refresh</Btn></div>
+        {err && <div className="mb-3 text-sm text-rose-600">{err}</div>}
+        {orders.length===0 && <Card className="p-6 text-sm text-stone-400">No open checks. Take an order first.</Card>}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {orders.map(o=> <button key={o.id} onClick={()=>setSel(o.id)} className={`rounded-2xl border p-3 text-left ${sel===o.id?"border-amber-500 bg-amber-50":"border-stone-200 bg-white"}`}>
+            <div className="flex justify-between"><span className="font-bold">#{o.orderNumber}{o.customerLabel?` · ${o.customerLabel}`:""}</span><Badge tone={o.status==="READY"?"green":"amber"}>{o.status.toLowerCase()}</Badge></div>
+            <div className="mt-1 text-sm text-stone-500">{o.items.reduce((n,i)=>n+i.quantity,0)} item(s) · {money(o.subtotalCents+o.taxCents)}</div>
+          </button>)}
+        </div>
+      </div>
+      <Card className="p-4 h-fit">
+        <div className="mb-2 text-lg font-bold">Payment</div>
+        {!order && <div className="py-6 text-center text-sm text-stone-400">Select a check to pay.</div>}
+        {order && <>
+          <Row k="Subtotal" v={money(order.subtotalCents)}/><Row k="Tax" v={money(order.taxCents)}/>
+          <div className="my-3"><div className="mb-1 text-xs font-semibold text-stone-500">Tip</div>
+            <div className="flex gap-2">{[0,15,18,20].map(p=> <button key={p} onClick={()=>{setTipPct(p);setCustomTip("");}} className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${tipPct===p&&customTip===""?"border-amber-500 bg-amber-50 text-amber-700 font-semibold":"border-stone-300"}`}>{p===0?"None":p+"%"}</button>)}</div>
+            <input value={customTip} onChange={e=>setCustomTip(e.target.value)} placeholder="Custom $ tip" className="inp mt-2"/>
+          </div>
+          <div className="mb-3"><div className="mb-1 text-xs font-semibold text-stone-500">Method</div>
+            <div className="flex gap-2">{["CARD","CASH"].map(m=> <button key={m} onClick={()=>setMethod(m)} className={`flex-1 rounded-lg border px-2 py-1.5 text-sm font-semibold ${method===m?"border-amber-500 bg-amber-50 text-amber-700":"border-stone-300 text-stone-600"}`}>{m==="CARD"?"💳 Card":"💵 Cash"}</button>)}</div>
+          </div>
+          <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-bold"><span>Total</span><span>{money(grand)}</span></div>
+          <Btn className="mt-3 w-full" onClick={pay} disabled={busy}>{busy?"…":`Take payment · ${money(grand)}`}</Btn>
+        </>}
+        {msg && <div className="mt-3 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">{msg}</div>}
+      </Card>
+    </div>
+  );
+}
+
+// ---- Menu admin ----
+function MenuAdmin({ menu, reload }) {
+  const [cn,setCn]=useState(""); const [iName,setIName]=useState(""); const [iPrice,setIPrice]=useState(""); const [iCat,setICat]=useState(menu.categories[0]?.id||"");
+  const [busy,setBusy]=useState(false); const [msg,setMsg]=useState(null);
+  const addCat = async () => { if(!cn.trim())return; setBusy(true); try{ await api.addCategory(cn.trim()); setCn(""); setMsg("Category added."); await reload(); }catch(e){setMsg(e.message);}finally{setBusy(false);} };
+  const addItem = async () => { const p=Math.round(parseFloat(iPrice||"0")*100); if(!iName.trim()||!(p>=0)){setMsg("Enter a name and price.");return;} setBusy(true);
+    try{ await api.addItem({name:iName.trim(),priceCents:p,categoryId:iCat||null}); setIName(""); setIPrice(""); setMsg("Item added."); await reload(); }catch(e){setMsg(e.message);}finally{setBusy(false);} };
+  return (
+    <div className="space-y-4">
+      {msg && <div className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">{msg}</div>}
+      <Card className="p-4"><div className="mb-3 font-bold">Add category</div>
+        <div className="flex gap-2"><input value={cn} onChange={e=>setCn(e.target.value)} placeholder="e.g. Drinks" className="inp"/><Btn onClick={addCat} disabled={busy}>Add</Btn></div></Card>
+      <Card className="p-4"><div className="mb-3 font-bold">Add item</div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+          <input value={iName} onChange={e=>setIName(e.target.value)} placeholder="Item name" className="inp sm:col-span-2"/>
+          <input value={iPrice} onChange={e=>setIPrice(e.target.value)} placeholder="Price $" className="inp"/>
+          <select value={iCat} onChange={e=>setICat(e.target.value)} className="inp">{menu.categories.map(c=> <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        </div>
+        <Btn className="mt-3" onClick={addItem} disabled={busy}>➕ Add item</Btn></Card>
+      <Card className="p-4"><div className="mb-3 font-bold">Current menu</div>
+        {menu.categories.map(c=> <div key={c.id} className="mb-3">
+          <div className="mb-1 text-sm font-semibold text-amber-700">{c.name}</div>
+          <div className="space-y-1">{menu.items.filter(i=>i.categoryId===c.id).map(i=> <div key={i.id} className="flex justify-between text-sm"><span>{i.name}</span><span className="font-medium">{money(i.priceCents)}</span></div>)}</div>
+        </div>)}
+        {menu.items.length===0 && <div className="text-sm text-stone-400">No items yet.</div>}
+      </Card>
+    </div>
+  );
+}
+
+// ---- Reports ----
+function Reports() {
+  const [r,setR]=useState(null); const [err,setErr]=useState(null);
+  const load = async () => { try{ setR(await api.report(todayStartISO())); setErr(null);}catch(e){setErr(e.message);} };
+  useEffect(()=>{ load(); },[]);
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between"><div className="text-lg font-bold">Today's sales</div><Btn tone="ghost" onClick={load}>🔄 Refresh</Btn></div>
+      {err && <div className="mb-3 text-sm text-rose-600">{err}</div>}
+      {r && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[["Orders paid",r.orders],["Gross sales",money(r.grossCents)],["Tips",money(r.tipCents)],["Card fees",money(r.cardFeeCents)]].map(([k,v])=>
+          <Card key={k} className="p-4"><div className="text-xs font-semibold text-stone-500">{k}</div><div className="mt-1 text-2xl font-bold text-amber-700">{v}</div></Card>)}
+      </div>}
+      {r && <Card className="mt-3 p-4"><div className="mb-2 font-bold">By payment method</div>
+        {r.byMethod.length===0 && <div className="text-sm text-stone-400">No payments yet today.</div>}
+        {r.byMethod.map(m=> <div key={m.method} className="flex justify-between text-sm"><span>{m.method} · {m.count} order(s)</span><span className="font-medium">{money(m.amountCents)}</span></div>)}
+      </Card>}
+    </div>
+  );
+}
+
+// ---- Admin (settings + staff) ----
+function Admin({ settings, reloadSettings }) {
+  const [cfg,setCfg]=useState(settings); const [msg,setMsg]=useState(null); const [busy,setBusy]=useState(false);
+  const [staff,setStaff]=useState([]);
+  const [ns,setNs]=useState({fullName:"",email:"",role:"STAFF",password:""});
+  const [pwOpen,setPwOpen]=useState(null); const [pw,setPw]=useState("");
+  useEffect(()=>setCfg(settings),[settings]);
+  const loadStaff = async () => { try{ setStaff(await api.getStaff()); }catch(e){setMsg(e.message);} };
+  useEffect(()=>{ loadStaff(); },[]);
+  const saveCfg = async () => { setBusy(true); setMsg(null); try{ await api.putSettings({taxPctBps:cfg.taxPctBps,ccFeePctBps:cfg.ccFeePctBps,ccFeeFixedCents:cfg.ccFeeFixedCents}); setMsg("Settings saved."); await reloadSettings(); }catch(e){setMsg(e.message);}finally{setBusy(false);} };
+  const addStaff = async () => { if(!ns.fullName.trim()){setMsg("Enter a name.");return;} if(ns.password&&ns.password.length<6){setMsg("Password min 6 chars.");return;} setBusy(true);
+    try{ await api.addStaff({fullName:ns.fullName.trim(),email:ns.email.trim()||null,role:ns.role,...(ns.password?{password:ns.password}:{})}); setNs({fullName:"",email:"",role:"STAFF",password:""}); setMsg("Staff added."); await loadStaff(); }catch(e){setMsg(e.message);}finally{setBusy(false);} };
+  const savePw = async (id) => { if(pw.length<6){setMsg("Password min 6 chars.");return;} setBusy(true); try{ await api.setStaffPassword(id,pw); setPwOpen(null); setPw(""); setMsg("Login set."); await loadStaff(); }catch(e){setMsg(e.message);}finally{setBusy(false);} };
+  const num=(k,v)=>setCfg(c=>({...c,[k]:v}));
+  return (
+    <div className="space-y-4">
+      {msg && <div className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">{msg}</div>}
+      <Card className="p-4"><div className="mb-3 flex items-center justify-between"><div className="font-bold">Settings</div><Btn onClick={saveCfg} disabled={busy}>Save settings</Btn></div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Sales tax %"><input type="number" step="0.01" value={(cfg.taxPctBps/100)} onChange={e=>num("taxPctBps",Math.round(parseFloat(e.target.value||"0")*100))} className="inp"/></Field>
+          <Field label="Card fee %"><input type="number" step="0.01" value={(cfg.ccFeePctBps/100)} onChange={e=>num("ccFeePctBps",Math.round(parseFloat(e.target.value||"0")*100))} className="inp"/></Field>
+          <Field label="Card fee fixed $"><input type="number" step="0.01" value={(cfg.ccFeeFixedCents/100)} onChange={e=>num("ccFeeFixedCents",Math.round(parseFloat(e.target.value||"0")*100))} className="inp"/></Field>
+        </div></Card>
+      <Card className="p-4"><div className="mb-3 flex items-center justify-between"><div className="font-bold">Add staff</div><Btn onClick={addStaff} disabled={busy}>Add staff</Btn></div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+          <input value={ns.fullName} onChange={e=>setNs({...ns,fullName:e.target.value})} placeholder="Full name" className="inp"/>
+          <input type="email" value={ns.email} onChange={e=>setNs({...ns,email:e.target.value})} placeholder="Email (login)" className="inp"/>
+          <select value={ns.role} onChange={e=>setNs({...ns,role:e.target.value})} className="inp"><option value="STAFF">Staff</option><option value="ADMIN">Admin</option><option value="OWNER">Owner</option></select>
+          <input value={ns.password} onChange={e=>setNs({...ns,password:e.target.value})} placeholder="Temp password (opt)" className="inp"/>
+        </div></Card>
+      <Card className="p-4"><div className="mb-3 font-bold">Team</div>
+        <div className="space-y-2">{staff.map(s=> <div key={s.id} className="rounded-xl border border-stone-200 p-3">
+          <div className="flex items-center justify-between"><div><span className="font-semibold">{s.name}</span> <Badge tone="gray">{s.role}</Badge> {s.hasLogin?<Badge tone="green">login</Badge>:<Badge tone="gray">no login</Badge>}<div className="text-xs text-stone-400">{s.email||"no email"}</div></div>
+            <Btn tone="ghost" onClick={()=>{setPwOpen(pwOpen===s.id?null:s.id);setPw("");}}>{pwOpen===s.id?"Cancel":"Set login"}</Btn></div>
+          {pwOpen===s.id && <div className="mt-2 flex gap-2"><input value={pw} onChange={e=>setPw(e.target.value)} placeholder="New password (min 6)" className="inp"/><Btn onClick={()=>savePw(s.id)} disabled={busy}>Save</Btn></div>}
+        </div>)}</div>
+      </Card>
+    </div>
+  );
+}
+
+// ---- App shell ----
+function App() {
+  const [authed,setAuthed]=useState(false);
+  const [tab,setTab]=useState("order");
+  const [menu,setMenu]=useState(null); const [settings,setSettings]=useState(null);
+  const [loading,setLoading]=useState(false); const [error,setError]=useState(null); const [tick,setTick]=useState(0);
+  const manager = _user && (_user.role==="OWNER"||_user.role==="ADMIN");
+  const loadAll = async () => { setLoading(true); setError(null);
+    try { const [m,s]=await Promise.all([api.getMenu(),api.getSettings()]); setMenu(m); setSettings(s); }
+    catch(e){ setError(e.message);} finally { setLoading(false);} };
+  useEffect(()=>{ if(authed) loadAll(); },[authed]);
+  const reloadMenu = async () => { setMenu(await api.getMenu()); };
+  const reloadSettings = async () => { setSettings(await api.getSettings()); };
+  if(!authed) return <Login onAuthed={()=>setAuthed(true)} />;
+  const tabs=[{id:"order",label:"Order",icon:"🛍️"},{id:"kitchen",label:"Kitchen",icon:"🔥"},{id:"checkout",label:"Checkout",icon:"💳"},
+    ...(manager?[{id:"menu",label:"Menu",icon:"📋"},{id:"reports",label:"Reports",icon:"📊"},{id:"admin",label:"Admin",icon:"⚙️"}]:[])];
+  return (
+    <div className="min-h-screen">
+      <header className="flex items-center justify-between border-b border-stone-200 bg-white px-5 py-3">
+        <div className="flex items-center gap-2"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white text-lg">🍳</div>
+          <div><div className="text-sm font-bold leading-tight">Counter POS</div><div className="text-xs text-stone-500 leading-tight">Quick-Service Restaurant</div></div></div>
+        <div className="flex items-center gap-2"><Badge tone={error?"red":"green"}>{error?"API offline":"Live API"}</Badge>
+          <span className="hidden text-xs text-stone-500 sm:inline">{_user.name} · {_user.role}</span>
+          <Btn tone="ghost" onClick={loadAll}>🔄</Btn>
+          <Btn tone="ghost" onClick={()=>{api.logout();setAuthed(false);}}>🚪 Sign out</Btn></div>
+      </header>
+      <nav className="flex gap-1 overflow-x-auto border-b border-stone-200 bg-white px-3">
+        {tabs.map(t=> <button key={t.id} onClick={()=>setTab(t.id)} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold ${tab===t.id?"border-amber-600 text-amber-700":"border-transparent text-stone-500"}`}><span>{t.icon}</span>{t.label}</button>)}
+      </nav>
+      <main className="mx-auto max-w-6xl p-4 sm:p-6">
+        {loading && <div className="py-16 text-center text-stone-400">Loading…</div>}
+        {!loading && error && <Card className="p-6"><div className="font-semibold">Couldn't reach the API</div>
+          <p className="mt-1 text-sm text-stone-500">Check the API is deployed and <code className="rounded bg-stone-100 px-1">window.__RESTO_API__</code> points to it (now <code className="rounded bg-stone-100 px-1">{API_BASE}</code>).</p>
+          <Btn className="mt-3" onClick={loadAll}>Retry</Btn></Card>}
+        {!loading && !error && menu && settings && <>
+          {tab==="order" && <OrderScreen key={tick} menu={menu} settings={settings} onPlaced={()=>setTick(t=>t+1)} />}
+          {tab==="kitchen" && <Kitchen/>}
+          {tab==="checkout" && <Checkout settings={settings}/>}
+          {tab==="menu" && manager && <MenuAdmin menu={menu} reload={reloadMenu}/>}
+          {tab==="reports" && manager && <Reports/>}
+          {tab==="admin" && manager && <Admin settings={settings} reloadSettings={reloadSettings}/>}
+        </>}
+      </main>
+    </div>
+  );
+}
+
+// shared input style
+const style=document.createElement("style");
+style.textContent=".inp{width:100%;border:1px solid #d6d3d1;border-radius:0.75rem;padding:0.5rem 0.75rem;font-size:0.875rem;outline:none;background:#fff}";
+document.head.appendChild(style);
+
+const root=document.getElementById("root"); root.innerHTML="";
+ReactDOM.createRoot(root).render(<App/>);
+root.setAttribute("data-ok","1");
+</script>
+</body>
+</html>
