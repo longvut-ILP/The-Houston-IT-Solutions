@@ -1,4 +1,6 @@
 import { withTx } from "../db/pool";
+import { hashPassword } from "../auth/password";
+import { upsertCredential } from "../repositories/authRepo";
 import { replaceCurrentConfig } from "../repositories/settingsRepo";
 import {
   insertStaff,
@@ -50,7 +52,7 @@ export async function createStaff(
     const id = await insertStaff(db, {
       salonId: input.salonId,
       fullName: input.fullName,
-      email: input.email ?? null,
+      email: input.email ? input.email.trim().toLowerCase() : null,
       role: input.role ?? "TECH",
       employmentType: input.employmentType,
     });
@@ -66,6 +68,30 @@ export async function createStaff(
     return id;
   });
   return { staffId };
+}
+
+/**
+ * Set or reset a staff member's login password (bcrypt hash, upserted) + audit.
+ * Used by owners/admins to give an employee a login or reset it.
+ */
+export async function setStaffPassword(
+  salonId: string,
+  staffId: string,
+  password: string,
+  actorStaffId?: string | null
+): Promise<void> {
+  const passwordHash = await hashPassword(password);
+  await withTx(async (db) => {
+    await upsertCredential(db, staffId, passwordHash);
+    await insertAudit(db, {
+      salonId,
+      actorStaffId: actorStaffId ?? null,
+      entityType: "staff",
+      entityId: staffId,
+      action: "SET_PASSWORD",
+      after: { passwordSet: true },
+    });
+  });
 }
 
 export interface UpdateStaffCompInput {

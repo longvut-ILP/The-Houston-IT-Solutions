@@ -11,13 +11,13 @@ import {
   generateAndPersistWorkweek,
 } from "../services/payrollService";
 import { computeDailyPool, persistDailyPool } from "../services/tipPoolService";
-import { createStaff, updateSettings, updateStaffComp } from "../services/adminService";
+import { createStaff, setStaffPassword, updateSettings, updateStaffComp } from "../services/adminService";
 import {
   createAppointment,
   listForDay,
   setStatus,
 } from "../services/appointmentService";
-import { login, logout, me, refresh } from "../services/authService";
+import { login, logout, me, refresh, registerSalon } from "../services/authService";
 import { clockIn, clockOut, getStatus } from "../services/timeClockService";
 import { stripeWebhookHandler } from "./webhooks/stripeWebhook";
 import { todayInTz, workweekStartInTz } from "../lib/time";
@@ -167,6 +167,23 @@ export function createApp() {
         .object({ email: z.string().email(), password: z.string().min(1) })
         .parse(req.body);
       res.json(await login(body.email, body.password));
+    })
+  );
+
+  // Self-serve tenant signup: creates a new salon + owner login, returns tokens.
+  app.post(
+    "/auth/register-salon",
+    h(async (req, res) => {
+      const body = z
+        .object({
+          salonName: z.string().min(1).max(120),
+          ownerName: z.string().min(1).max(120),
+          ownerEmail: z.string().email(),
+          password: z.string().min(6).max(200),
+          timezone: z.string().min(1).max(64).optional(),
+        })
+        .parse(req.body);
+      res.status(201).json(await registerSalon(body));
     })
   );
 
@@ -353,6 +370,21 @@ export function createApp() {
       // Ignore any client-supplied salonId — force the caller's salon.
       const result = await createStaff({ ...input, salonId: auth.salonId }, auth.staffId);
       res.status(201).json(result);
+    })
+  );
+
+  // Set or reset a staff member's login password (owner/admin, same salon).
+  app.post(
+    "/staff/:staffId/credential",
+    requireRole("OWNER", "ADMIN"),
+    h(async (req, res) => {
+      const auth = getAuth(req);
+      await assertStaffInSalon(req, req.params.staffId);
+      const { password } = z
+        .object({ password: z.string().min(6).max(200) })
+        .parse(req.body);
+      await setStaffPassword(auth.salonId, req.params.staffId, password, auth.staffId);
+      res.status(204).end();
     })
   );
 

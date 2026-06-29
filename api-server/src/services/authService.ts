@@ -1,6 +1,12 @@
-import { pool } from "../db/pool";
-import { getCredentialByEmail, getStaffIdentity } from "../repositories/authRepo";
-import { verifyPassword } from "../auth/password";
+import { pool, withTx } from "../db/pool";
+import {
+  getCredentialByEmail,
+  getStaffIdentity,
+  upsertCredential,
+} from "../repositories/authRepo";
+import { insertStaff } from "../repositories/staffRepo";
+import { replaceCurrentConfig } from "../repositories/settingsRepo";
+import { hashPassword, verifyPassword } from "../auth/password";
 import { signToken } from "../auth/jwt";
 import { HttpError } from "../auth/middleware";
 import {
@@ -40,8 +46,57 @@ async function issueTokens(staff: {
   };
 }
 
+export interface RegisterSalonInput {
+  salonName: string;
+  ownerName: string;
+  ownerEmail: string;
+  password: string;
+  timezone?: string;
+}
+
+/**
+ * Self-serve tenant onboarding: create a new salon + default settings + an OWNER
+ * staff member + their login, all atomically, then sign the owner in. Each salon
+ * gets its own salon_id, so tenant data stays isolated by the existing scoping.
+ */
+export async function registerSalon(input: RegisterSalonInput): Promise<AuthTokens> {
+  const email = input.ownerEmail.trim().toLowerCase();
+  // Global email uniqueness keeps login (which resolves by email) unambiguous.
+  const existing = await getCredentialByEmail(pool, email);
+  if (existing) throw new HttpError(409, "An account with that email already exists");
+
+  const tz = input.timezone?.trim() || "America/Chicago";
+  const ownerName = input.ownerName.trim();
+  const owner = await withTx(async (db) => {
+    const { rows } = await db.query<{ id: string }>(
+      `INSERT INTO salons (name, timezone) VALUES ($1, $2) RETURNING id`,
+      [input.salonName.trim(), tz]
+    );
+    const salonId = rows[0].id;
+    await replaceCurrentConfig(db, salonId, {
+      ccFeePctBps: 290,
+      ccFeeFixedCents: 30,
+      productCostPctBps: 1000,
+      minWageCentsPerHour: 1600,
+      tipPoolingEnabled: false,
+      timezone: tz,
+    });
+    const staffId = await insertStaff(db, {
+      salonId,
+      fullName: ownerName,
+      email,
+      role: "OWNER",
+      employmentType: "W2",
+    });
+    const passwordHash = await hashPassword(input.password);
+    await upsertCredential(db, staffId, passwordHash);
+    return { staffId, salonId, fullName: ownerName, role: "OWNER" as const };
+  });
+  return issueTokens(owner);
+}
+
 export async function login(email: string, password: string): Promise<AuthTokens> {
-  const cred = await getCredentialByEmail(pool, email);
+  const cred = await getCredentialByEmail(pool, email.trim().toLowerCase());
   if (!cred) throw new HttpError(401, "Invalid email or password");
   const ok = await verifyPassword(password, cred.passwordHash);
   if (!ok) throw new HttpError(401, "Invalid email or password");

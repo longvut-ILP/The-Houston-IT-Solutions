@@ -64,6 +64,20 @@ export async function getStaffIdentity(
   return { staffId: r.id, salonId: r.salon_id, role: r.role, fullName: r.full_name };
 }
 
+/** Create or replace a staff member's login password hash. */
+export async function upsertCredential(
+  db: Db,
+  staffId: string,
+  passwordHash: string
+): Promise<void> {
+  await db.query(
+    `INSERT INTO staff_credentials (staff_id, password_hash)
+     VALUES ($1, $2)
+     ON CONFLICT (staff_id) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+    [staffId, passwordHash]
+  );
+}
+
 /** Salon that owns a staff row (for tenancy checks). */
 export async function getStaffSalon(db: Db, staffId: string): Promise<string | null> {
   const { rows } = await db.query<{ salon_id: string }>(

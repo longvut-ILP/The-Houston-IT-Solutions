@@ -93,6 +93,15 @@ export async function login(email, password) {
   setSession(r);
   return r.staff;
 }
+export async function registerSalon(body) {
+  const r = await request(`/auth/register-salon`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  setSession(r);
+  return r.staff;
+}
+
 export const me = () => request(`/auth/me`);
 export async function logout() {
   try {
@@ -180,6 +189,12 @@ export const createStaff = (body) =>
   request(`/staff`, {
     method: "POST",
     body: JSON.stringify({ salonId: getSalonId(), ...body }),
+  });
+
+export const setStaffPassword = (staffId, password) =>
+  request(`/staff/${staffId}/credential`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
   });
 
 export const createAppointment = (body) =>

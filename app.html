@@ -81,6 +81,7 @@ async function request(path, options = {}, retried = false) {
   return res.json();
 }
 async function login(email, password) { const r = await request(`/auth/login`, { method: "POST", body: JSON.stringify({ email, password }) }); setSession(r); return r.staff; }
+async function registerSalon(body) { const r = await request(`/auth/register-salon`, { method: "POST", body: JSON.stringify(body) }); setSession(r); return r.staff; }
 async function logout() { try { if (_refresh) { await fetch(`${API_BASE}/auth/logout`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: _refresh }) }); } } catch {} clearSession(); }
 const me = () => request(`/auth/me`);
 async function loadCalendar() { _cal = await request(`/salons/${getSalonId()}/calendar`); return _cal; }
@@ -96,14 +97,16 @@ const commitPayroll = (start) => request(`/payroll/commit`, { method: "POST", bo
 const commitTipPool = (date) => request(`/tip-pool/commit`, { method: "POST", body: JSON.stringify({ date }) });
 const putSettings = (config, salonId = getSalonId()) => request(`/salons/${salonId}/settings`, { method: "PUT", body: JSON.stringify(config) });
 const updateStaffComp = (staffId, body) => request(`/staff/${staffId}/comp`, { method: "PATCH", body: JSON.stringify({ salonId: getSalonId(), ...body }) });
+const createStaff = (body) => request(`/staff`, { method: "POST", body: JSON.stringify({ salonId: getSalonId(), ...body }) });
+const setStaffPassword = (staffId, password) => request(`/staff/${staffId}/credential`, { method: "POST", body: JSON.stringify({ password }) });
 const createAppointment = (body) => request(`/appointments`, { method: "POST", body: JSON.stringify({ salonId: getSalonId(), ...body }) });
 const checkout = (body) => request(`/checkout`, { method: "POST", body: JSON.stringify(body) });
 const clockIn = (techId) => request(`/time-clock/in`, { method: "POST", body: JSON.stringify(techId ? { techId } : {}) });
 const clockOut = (techId) => request(`/time-clock/out`, { method: "POST", body: JSON.stringify(techId ? { techId } : {}) });
 const clockStatus = (techId, date) => { const p = new URLSearchParams(); if (techId) p.set("techId", techId); if (date) p.set("date", date); return request(`/time-clock/status?${p.toString()}`); };
-const api = { API_BASE, login, logout, me, loadCalendar, today, weekStart, todayISO: today, workweekStart: weekStart,
+const api = { API_BASE, login, registerSalon, logout, me, loadCalendar, today, weekStart, todayISO: today, workweekStart: weekStart,
   getSettings, getStaff, getAppointments, getTickets, getPayroll, getTipPool, commitPayroll, commitTipPool,
-  putSettings, updateStaffComp, createAppointment, checkout, clockIn, clockOut, clockStatus };
+  putSettings, updateStaffComp, createStaff, setStaffPassword, createAppointment, checkout, clockIn, clockOut, clockStatus };
 
 // ---- engine mirror (matches src/lib/commissionEngine.ts) ------------------
 const applyBps = (cents, bps) => Math.round((cents * bps) / 10000);
@@ -151,23 +154,48 @@ const Row = ({ label, value, strong, tone }) => (
 );
 
 // ---- Login gate -----------------------------------------------------------
-function Login({ onLogin }) {
+const TZ_OPTIONS = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "America/Anchorage", "Pacific/Honolulu"];
+
+function Login({ onLogin, onRegister }) {
+  const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("owner@polished.test");
   const [password, setPassword] = useState("");
+  const [salonName, setSalonName] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [timezone, setTimezone] = useState("America/Chicago");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const submit = async (e) => { e.preventDefault(); setBusy(true); setErr(null); try { await onLogin(email, password); } catch (e2) { setErr(e2.message || String(e2)); } finally { setBusy(false); } };
+  const isSignup = mode === "signup";
+  const switchMode = (m) => { setMode(m); setErr(null); setPassword(""); if (m === "signup") setEmail(""); };
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try {
+      if (isSignup) await onRegister({ salonName: salonName.trim(), ownerName: ownerName.trim(), ownerEmail: email.trim(), password, timezone });
+      else await onLogin(email, password);
+    } catch (e2) { setErr(e2.message || String(e2)); } finally { setBusy(false); }
+  };
+  const canSubmit = isSignup ? (salonName.trim() && ownerName.trim() && email.trim() && password.length >= 6) : password;
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-10">
       <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-600 text-white"><Scissors size={18} /></div>
-          <div><div className="text-sm font-bold leading-tight">Polished POS</div><div className="text-xs text-gray-500 leading-tight">Sign in to your salon</div></div>
+          <div><div className="text-sm font-bold leading-tight">Polished POS</div><div className="text-xs text-gray-500 leading-tight">{isSignup ? "Create your salon" : "Sign in to your salon"}</div></div>
         </div>
-        <label className="mb-3 block"><span className="mb-1 block text-xs font-medium text-gray-500">Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" /></label>
-        <label className="mb-4 block"><span className="mb-1 block text-xs font-medium text-gray-500">Password</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" /></label>
+        <div className="mb-5 flex rounded-lg bg-gray-100 p-0.5 text-xs font-medium">
+          <button type="button" onClick={() => switchMode("signin")} className={`flex-1 rounded-md px-3 py-1.5 ${!isSignup ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>Sign in</button>
+          <button type="button" onClick={() => switchMode("signup")} className={`flex-1 rounded-md px-3 py-1.5 ${isSignup ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>Create salon</button>
+        </div>
+        {isSignup && <>
+          <label className="mb-3 block"><span className="mb-1 block text-xs font-medium text-gray-500">Salon name</span><input value={salonName} onChange={(e) => setSalonName(e.target.value)} placeholder="Polished Nail Bar" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" /></label>
+          <label className="mb-3 block"><span className="mb-1 block text-xs font-medium text-gray-500">Your name (owner)</span><input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="Jane Tran" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" /></label>
+        </>}
+        <label className="mb-3 block"><span className="mb-1 block text-xs font-medium text-gray-500">Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder={isSignup ? "you@yoursalon.com" : ""} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" /></label>
+        <label className="mb-3 block"><span className="mb-1 block text-xs font-medium text-gray-500">Password{isSignup && <span className="text-gray-400"> (min 6 chars)</span>}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={isSignup ? "new-password" : "current-password"} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none" /></label>
+        {isSignup && <label className="mb-4 block"><span className="mb-1 block text-xs font-medium text-gray-500">Timezone</span><select value={timezone} onChange={(e) => setTimezone(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm">{TZ_OPTIONS.map((z) => <option key={z} value={z}>{z}</option>)}</select></label>}
         {err && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
-        <button type="submit" disabled={busy || !password} className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Lock size={15} /> {busy ? "Signing in…" : "Sign in"}</button>
+        <button type="submit" disabled={busy || !canSubmit} className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Lock size={15} /> {busy ? (isSignup ? "Creating…" : "Signing in…") : (isSignup ? "Create salon" : "Sign in")}</button>
+        {isSignup && <p className="mt-3 text-center text-xs text-gray-400">Creates a brand-new salon with its own private data. You'll be signed in as the owner.</p>}
       </form>
     </div>
   );
@@ -196,6 +224,7 @@ function SalonPOS() {
   };
   useEffect(() => { if (user) loadAll(); }, [user]);
   const handleLogin = async (email, password) => { setUser(await api.login(email, password)); };
+  const handleRegister = async (body) => { setUser(await api.registerSalon(body)); };
   const handleLogout = () => { api.logout(); setUser(null); setConfig(null); setTechs([]); setAppts([]); setTickets([]); setTab("schedule"); };
   const refreshTickets = async () => setTickets(await api.getTickets(api.today()));
   const refreshAppts = async () => setAppts((await api.getAppointments(api.today())).map(adaptAppt).filter((a) => ["booked", "in_chair", "done"].includes(a.status)));
@@ -205,6 +234,8 @@ function SalonPOS() {
   const handleAddWalkIn = async (techId) => { const taken = new Set(appts.filter((a) => a.techId === techId).map((a) => a.time)); const slot = SLOTS.find((s) => !taken.has(s)) || SLOTS[SLOTS.length - 1]; await api.createAppointment({ techId, clientLabel: "Walk-in", serviceDesc: "New service", startsAt: slotToISO(slot, api.today()) }); await refreshAppts(); };
   const handleSaveSettings = async (cfg) => setConfig(await api.putSettings(cfg));
   const handleSaveComp = async (staffId, body) => { await api.updateStaffComp(staffId, body); await refreshStaff(); };
+  const handleAddStaff = async (body) => { const r = await api.createStaff(body); if (body.password) { await api.setStaffPassword(r.staffId, body.password); } await refreshStaff(); return r; };
+  const handleSetPassword = async (staffId, password) => { await api.setStaffPassword(staffId, password); };
   const isManager = user && (user.role === "OWNER" || user.role === "ADMIN");
   const tabs = [
     { id: "schedule", label: "Turns", icon: Calendar },
@@ -212,7 +243,7 @@ function SalonPOS() {
     { id: "dashboard", label: "Tech Dashboard", icon: LayoutDashboard },
     ...(isManager ? [{ id: "owner", label: "Owner", icon: DollarSign }, { id: "admin", label: "Admin Config", icon: Settings }] : []),
   ];
-  if (!user) return <Login onLogin={handleLogin} />;
+  if (!user) return <Login onLogin={handleLogin} onRegister={handleRegister} />;
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
@@ -240,9 +271,12 @@ function SalonPOS() {
           {tab === "checkout" && <Checkout techs={techs} config={config} user={user} pending={pending} clearPending={() => setPending(null)} onComplete={handleCheckout} />}
           {tab === "dashboard" && <Dashboard techs={techs} config={config} tickets={tickets} user={user} />}
           {tab === "owner" && <Owner techs={techs} config={config} tickets={tickets} today={api.today()} />}
-          {tab === "admin" && <Admin config={config} techs={techs} onSaveSettings={handleSaveSettings} onSaveComp={handleSaveComp} />}
+          {tab === "admin" && <Admin config={config} techs={techs} onSaveSettings={handleSaveSettings} onSaveComp={handleSaveComp} onAddStaff={handleAddStaff} onSetPassword={handleSetPassword} />}
         </>)}
-        {!loading && !error && config && techs.length === 0 && <Card className="p-6 text-sm text-gray-500">No staff yet. Add staff via the API, then Refresh.</Card>}
+        {!loading && !error && config && techs.length === 0 && (isManager
+          ? <div className="space-y-4"><Card className="p-5"><div className="flex items-start gap-3"><Building2 size={20} className="mt-0.5 text-purple-500" /><div><div className="font-semibold">Welcome to {user.name ? "your salon" : "Polished POS"} 🎉</div><p className="mt-1 text-sm text-gray-500">You're all set up. Add your first employee below to start booking turns and running checkout. Set their W-2/1099 type and pay here — you can give them a login too.</p></div></div></Card>
+              <Admin config={config} techs={techs} onSaveSettings={handleSaveSettings} onSaveComp={handleSaveComp} onAddStaff={handleAddStaff} onSetPassword={handleSetPassword} /></div>
+          : <Card className="p-6 text-sm text-gray-500">No staff yet. Ask your salon owner to add you, then Refresh.</Card>)}
       </main>
     </div>
   );
@@ -369,8 +403,32 @@ const CfgNum = ({ label, value, onChange, suffix, step = "1" }) => (
   <label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">{label}</span><div className="flex items-center rounded-xl border border-gray-200 px-3 py-2"><input type="number" step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value || "0"))} className="w-full bg-transparent text-sm outline-none" />{suffix && <span className="text-xs text-gray-400">{suffix}</span>}</div></label>
 );
 
-function Admin({ config, techs, onSaveSettings, onSaveComp }) {
+function Admin({ config, techs, onSaveSettings, onSaveComp, onAddStaff, onSetPassword }) {
   const [cfg, setCfg] = useState(config); const [savingCfg, setSavingCfg] = useState(false); const [draft, setDraft] = useState({}); const [savingId, setSavingId] = useState(null); const [msg, setMsg] = useState(null);
+  const NEW0 = { fullName: "", email: "", employmentType: "W2", serviceCommissionBps: 5000, retailCommissionBps: 1000, rentCents: 20000, rentCadence: "WEEKLY", password: "" };
+  const [ns, setNs] = useState(NEW0); const [addingStaff, setAddingStaff] = useState(false);
+  const [pwOpen, setPwOpen] = useState(null); const [pwVal, setPwVal] = useState(""); const [pwSaving, setPwSaving] = useState(false);
+  const setNsField = (k, v) => setNs((s) => ({ ...s, [k]: v }));
+  const addStaff = async () => {
+    if (!ns.fullName.trim()) { setMsg("Enter the employee's name."); return; }
+    if (ns.password && ns.password.length < 6) { setMsg("Password must be at least 6 characters (or leave it blank)."); return; }
+    const w2 = ns.employmentType === "W2";
+    const body = { fullName: ns.fullName.trim(), email: ns.email.trim() || null, role: "TECH",
+      ...(w2 ? { employmentType: "W2", serviceCommissionBps: ns.serviceCommissionBps || 0, retailCommissionBps: ns.retailCommissionBps || 0 }
+            : { employmentType: "1099", rentAmountCents: ns.rentCents || 0, rentCadence: (ns.rentCadence || "WEEKLY").toUpperCase() }) };
+    if (ns.password) body.password = ns.password;
+    setAddingStaff(true); setMsg(null);
+    try { await onAddStaff(body); setNs(NEW0); setMsg(`${body.fullName} added${ns.password ? " with a login" : ""}.`); }
+    catch (e) { setMsg(`Add failed: ${e.message}`); }
+    finally { setAddingStaff(false); }
+  };
+  const savePassword = async (t) => {
+    if (!pwVal || pwVal.length < 6) { setMsg("Password must be at least 6 characters."); return; }
+    setPwSaving(true); setMsg(null);
+    try { await onSetPassword(t.id, pwVal); setPwOpen(null); setPwVal(""); setMsg(`Login set for ${t.name}.`); }
+    catch (e) { setMsg(`Set login failed: ${e.message}`); }
+    finally { setPwSaving(false); }
+  };
   useEffect(() => setCfg(config), [config]);
   const setField = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
   const saveSettings = async () => { setSavingCfg(true); setMsg(null); try { await onSaveSettings(cfg); setMsg("Settings saved."); } catch (e) { setMsg(`Save failed: ${e.message}`); } finally { setSavingCfg(false); } };
@@ -384,11 +442,23 @@ function Admin({ config, techs, onSaveSettings, onSaveComp }) {
       <Card className="p-5"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-bold">Salon settings</h2><p className="text-sm text-gray-500">Overhead and compliance defaults applied across checkout.</p></div><button onClick={saveSettings} disabled={savingCfg} className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingCfg ? "Saving…" : "Save settings"}</button></div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3"><CfgNum label="Card fee %" value={cfg.ccFeePctBps / 100} suffix="%" step="0.01" onChange={(v) => setField("ccFeePctBps", Math.round(v * 100))} /><CfgNum label="Card fee fixed" value={cfg.ccFeeFixedCents / 100} suffix="$" step="0.01" onChange={(v) => setField("ccFeeFixedCents", Math.round(v * 100))} /><CfgNum label="Product cost %" value={cfg.productCostPctBps / 100} suffix="%" step="0.5" onChange={(v) => setField("productCostPctBps", Math.round(v * 100))} /><CfgNum label="Local min wage" value={cfg.minWageCentsPerHour / 100} suffix="$/h" step="0.25" onChange={(v) => setField("minWageCentsPerHour", Math.round(v * 100))} /><label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">Timezone (workweek anchor)</span><select value={cfg.timezone || "America/New_York"} onChange={(e) => setField("timezone", e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm">{(ZONES.includes(cfg.timezone) ? ZONES : [cfg.timezone || "America/New_York", ...ZONES]).map((z) => <option key={z} value={z}>{z}</option>)}</select></label></div>
         <label className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 p-3"><span><span className="block text-sm font-medium">Tip pooling (W-2 staff)</span><span className="block text-xs text-gray-400">Pool card tips daily, split by hours. Excludes 1099 contractors &amp; owners by law.</span></span><button onClick={() => setField("tipPoolingEnabled", !cfg.tipPoolingEnabled)} className={`relative h-6 w-11 rounded-full ${cfg.tipPoolingEnabled ? "bg-purple-600" : "bg-gray-300"}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${cfg.tipPoolingEnabled ? "left-5" : "left-0.5"}`} /></button></label></Card>
+      <Card className="p-5"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-bold">Add employee</h2><p className="text-sm text-gray-500">Create a new staff member and (optionally) give them a login right away.</p></div><button onClick={addStaff} disabled={addingStaff} className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{addingStaff ? "Adding…" : "Add employee"}</button></div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">Full name</span><input value={ns.fullName} onChange={(e) => setNsField("fullName", e.target.value)} placeholder="Jane Tran" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" /></label>
+          <label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">Email (login)</span><input type="email" value={ns.email} onChange={(e) => setNsField("email", e.target.value)} placeholder="jane@salon.com" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" /></label>
+          <label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">Temp password (optional)</span><input type="text" value={ns.password} onChange={(e) => setNsField("password", e.target.value)} placeholder="min 6 chars" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" /></label>
+        </div>
+        <div className="mt-3 flex items-center gap-2"><div className="flex rounded-lg bg-gray-100 p-0.5 text-xs font-medium"><button onClick={() => setNsField("employmentType", "W2")} className={`rounded-md px-3 py-1 ${ns.employmentType === "W2" ? "bg-white text-blue-700 shadow-sm" : "text-gray-500"}`}>W-2 Employee</button><button onClick={() => setNsField("employmentType", "1099")} className={`rounded-md px-3 py-1 ${ns.employmentType === "1099" ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>1099 Renter</button></div></div>
+        <div className="mt-3 grid grid-cols-2 gap-3">{ns.employmentType === "W2"
+          ? <><CfgNum label="Service commission %" value={(ns.serviceCommissionBps || 0) / 100} suffix="%" onChange={(v) => setNsField("serviceCommissionBps", Math.round(v * 100))} /><CfgNum label="Retail commission %" value={(ns.retailCommissionBps || 0) / 100} suffix="%" onChange={(v) => setNsField("retailCommissionBps", Math.round(v * 100))} /></>
+          : <><CfgNum label="Chair rent" value={(ns.rentCents || 0) / 100} suffix="$" step="10" onChange={(v) => setNsField("rentCents", Math.round(v * 100))} /><label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">Rent cadence</span><select value={ns.rentCadence} onChange={(e) => setNsField("rentCadence", e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option></select></label></>}</div>
+        <p className="mt-3 text-xs text-gray-400">An email is required for the employee to log in. Leave the password blank to add them now and set a login later.</p></Card>
       <Card className="p-5"><h2 className="mb-1 text-lg font-bold">Employee profiles</h2><p className="mb-4 text-sm text-gray-500">Toggle W-2 vs 1099 — it switches the entire payout &amp; compliance path. Save writes a new profile version.</p>
         <div className="space-y-3">{techs.map((t) => { const d = draftFor(t); const w2 = d.employmentType === "W2"; const dirty = !!draft[t.id]; return <div key={t.id} className="rounded-xl border border-gray-200 p-4"><div className="mb-3 flex items-center justify-between"><div className="font-semibold">{t.name}</div><div className="flex items-center gap-2"><div className="flex rounded-lg bg-gray-100 p-0.5 text-xs font-medium"><button onClick={() => setDraftField(t.id, { employmentType: "W2" })} className={`rounded-md px-3 py-1 ${w2 ? "bg-white text-blue-700 shadow-sm" : "text-gray-500"}`}>W-2 Employee</button><button onClick={() => setDraftField(t.id, { employmentType: "1099" })} className={`rounded-md px-3 py-1 ${!w2 ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>1099 Renter</button></div><button onClick={() => saveComp(t)} disabled={!dirty || savingId === t.id} className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">{savingId === t.id ? "Saving…" : "Save"}</button></div></div>
           {w2 ? <div className="grid grid-cols-2 gap-3"><CfgNum label="Service commission %" value={(d.serviceCommissionBps || 0) / 100} suffix="%" onChange={(v) => setDraftField(t.id, { serviceCommissionBps: Math.round(v * 100) })} /><CfgNum label="Retail commission %" value={(d.retailCommissionBps || 0) / 100} suffix="%" onChange={(v) => setDraftField(t.id, { retailCommissionBps: Math.round(v * 100) })} /></div>
           : <div className="grid grid-cols-2 gap-3"><CfgNum label="Chair rent" value={(d.rentCents || 0) / 100} suffix="$" step="10" onChange={(v) => setDraftField(t.id, { rentCents: Math.round(v * 100) })} /><label className="block"><span className="mb-1 block text-xs font-medium text-gray-500">Rent cadence</span><select value={d.rentCadence || "WEEKLY"} onChange={(e) => setDraftField(t.id, { rentCadence: e.target.value })} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option></select></label></div>}
-          <div className="mt-2 text-xs text-gray-400">{w2 ? "Hours tracked · paid via payroll export · min-wage + OT protected" : "No wage hours · instant payouts · flat rent"}</div></div>; })}</div></Card>
+          <div className="mt-2 flex items-center justify-between gap-2"><span className="text-xs text-gray-400">{w2 ? "Hours tracked · paid via payroll export · min-wage + OT protected" : "No wage hours · instant payouts · flat rent"}</span><button onClick={() => { setPwOpen(pwOpen === t.id ? null : t.id); setPwVal(""); }} className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600">{pwOpen === t.id ? "Cancel" : "Set login"}</button></div>
+          {pwOpen === t.id && <div className="mt-2 flex items-center gap-2 rounded-lg bg-gray-50 p-2"><input type="text" value={pwVal} onChange={(e) => setPwVal(e.target.value)} placeholder="New password (min 6 chars)" className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm" /><button onClick={() => savePassword(t)} disabled={pwSaving} className="shrink-0 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">{pwSaving ? "Saving…" : "Save login"}</button></div>}</div>; })}</div></Card>
     </div>
   );
 }
