@@ -85,20 +85,6 @@
         <button id="ol-next" class="btn btn-sm" style="display:none;">Start next match ▶</button>
       </div>
 
-      <h2 class="panel-title">Office Tournament (same screen)</h2>
-      <div class="tn-entry">
-        <input id="tn-name" type="text" placeholder="Add player name" maxlength="24" />
-        <button id="tn-add" class="btn btn-sm">Add</button>
-      </div>
-      <div class="tn-actions">
-        <button id="tn-ai" class="btn btn-sm">Add 🤖 Computer</button>
-      </div>
-      <div class="tn-actions">
-        <button id="tn-start" class="btn btn-sm" disabled>Start</button>
-        <button id="tn-reset" class="btn btn-sm">Reset</button>
-      </div>
-      <div id="tn-body" class="tn-body"></div>
-
       <h2 class="panel-title">Captured</h2>
       <div class="captured" id="captured-red" aria-label="Red captures"></div>
       <div class="captured" id="captured-black" aria-label="Black captures"></div>
@@ -153,13 +139,11 @@
       <p>Tick <b>“AI plays Black”</b> to play against the engine, and pick a
          <b>Difficulty</b>. Untick it to play another person on the same screen.</p>
 
-      <h3>Office Tournament</h3>
-      <p>Type each person’s name and press <b>Add</b> (Enter works too). With two or more
-         in line, press <b>Start</b>. The winner stays on, the loser goes to the back of
-         the line, a draw keeps the champion, and colours swap each game. A 🔥 streak
-         marks the King of the Hill. Press <b>Add 🤖 Computer</b> to drop the engine into
-         the line as a contender. When a game ends, press <b>Start next match ▶</b> to
-         bring in the next challenger.</p>
+      <h3>Online Tournament</h3>
+      <p>Host a room (share the PIN) or tap the <b>ET</b> room, and have friends join
+         from their own computers. The front two play; everyone else watches the live
+         board. The winner stays on, the loser goes to the back of the line, colours
+         swap each game, and the host taps <b>Start next match ▶</b> between games.</p>
 
       <div class="help-actions">
         <button id="help-ok" class="btn">Got it</button>
@@ -180,7 +164,6 @@
   <script src="js/ai/search.js"></script>
   <script src="js/ai/ucci.js"></script>
   <!-- CONTROLLER / bootstrap -->
-  <script src="js/tournament.js"></script>
   <script src="js/main.js"></script>
   <script src="js/help.js"></script>
   <!-- ONLINE PLAY -->
