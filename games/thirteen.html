@@ -123,12 +123,19 @@ button:disabled { background: #888; color: #ccc; cursor: not-allowed; }
 <input type="text" id="join-id" placeholder="Enter 4-Digit Room PIN" maxlength="4" style="width:90%; padding:8px;">
 <button id="join-btn">Join Room</button>
 </div>
+<hr style="border-color: rgba(255,255,255,0.2); margin: 20px 0;">
+<div id="quick-section">
+<h3>Quick Room</h3>
+<input type="text" id="quick-name" placeholder="Your Name (blank = random)" maxlength="24" style="width:90%; padding:8px; margin-bottom:5px;">
+<button id="quick-et-btn">Join the “ET” room</button>
+<p style="font-size:0.85rem; color:#ccc; margin-top:6px;">The permanent shared room — anyone can jump in. First person in hosts it.</p>
+</div>
 <div id="error-log">Diagnostics standing by...</div>
 </div>
 <div id="lobby-section" class="box" style="display: none;">
 <h2>Waiting Lobby</h2>
 <div style="background: #333; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-<p style="margin: 0 0 5px 0; font-size: 0.9em; color: #ccc;">Tell your friends to enter this PIN:</p>
+<p style="margin: 0 0 5px 0; font-size: 0.9em; color: #ccc;">Tell your friends this room (PIN or name):</p>
 <span id="lobby-room-id" style="font-size: 2rem; font-weight: bold; letter-spacing: 5px; color: #ffeb3b;">...</span>
 </div>
 <p>Players Connected: <span id="player-count">1</span>/4</p>
@@ -193,6 +200,7 @@ button:disabled { background: #888; color: #ccc; cursor: not-allowed; }
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('create-btn').addEventListener('click', startHost);
     document.getElementById('join-btn').addEventListener('click', joinRoom);
+    document.getElementById('quick-et-btn').addEventListener('click', () => enterNamedRoom('ET'));
     document.getElementById('start-game-btn').addEventListener('click', startGame);
     document.getElementById('next-round-btn').addEventListener('click', startGame);
     document.getElementById('play-btn').addEventListener('click', playSelectedCards);
@@ -434,6 +442,78 @@ function joinRoom() {
     peer.on('error', (err) => {
         debugLog("❌ JOIN ERROR: " + err.type);
         alert("Connection failed: " + err.type);
+    });
+}
+
+// --- NAMED ROOM (e.g. the permanent "ET" room) ---
+// Same peer-to-peer engine, but the room id comes from a fixed name instead of
+// a random PIN. We try to JOIN it; if nobody is hosting it yet, we host it.
+const ICE13 = { 'iceServers': [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' } ] };
+function roomIdFromName(name) {
+    return "htx-thirteen-" + String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+function enterNamedRoom(roomName) {
+    myName = document.getElementById('quick-name').value.trim() || ("Player " + Math.floor(1000 + Math.random() * 9000));
+    document.getElementById('error-log').innerText = "";
+    document.getElementById('quick-et-btn').disabled = true;
+    document.getElementById('room-id-display').innerText = "Joining “" + roomName + "”…";
+    tryJoinNamedRoom(roomIdFromName(roomName), roomName);
+}
+function tryJoinNamedRoom(roomId, roomName) {
+    isHost = false;
+    peer = new Peer(null, { debug: 2, config: ICE13 });
+    let decided = false;
+    const fallbackToHost = () => {
+        if (decided) return; decided = true;
+        try { peer.destroy(); } catch (e) {}
+        becomeNamedHost(roomId, roomName);
+    };
+    peer.on('open', () => {
+        debugLog("Looking for room " + roomName + "…");
+        const conn = peer.connect(roomId, { reliable: true });
+        const timer = setTimeout(fallbackToHost, 4500);
+        conn.on('open', () => {
+            if (decided) return; decided = true; clearTimeout(timer);
+            hostConnection = conn;
+            debugLog("Joined room " + roomName + " as a player.");
+            document.getElementById('setup-section').style.display = "none";
+            document.getElementById('lobby-section').style.display = "block";
+            document.getElementById('lobby-room-id').innerText = roomName;
+            conn.send({ type: 'JOIN_LOBBY', name: myName });
+        });
+        conn.on('data', (data) => handleIncomingData(data));
+    });
+    peer.on('error', (err) => {
+        if (err.type === 'peer-unavailable') fallbackToHost();
+        else debugLog("❌ JOIN ERROR: " + err.type);
+    });
+}
+function becomeNamedHost(roomId, roomName) {
+    isHost = true;
+    peer = new Peer(roomId, { debug: 2, config: ICE13 });
+    peer.on('open', () => {
+        debugLog("Hosting room " + roomName + ".");
+        document.getElementById('room-id-display').innerText = "Hosting!";
+        document.getElementById('lobby-room-id').innerText = roomName;
+        document.getElementById('setup-section').style.display = "none";
+        document.getElementById('lobby-section').style.display = "block";
+        document.getElementById('start-game-btn').style.display = "inline-block";
+        players.push(myName);
+        updateLobbyUI();
+    });
+    peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') { // someone hosted it a beat earlier — join them
+            try { peer.destroy(); } catch (e) {}
+            tryJoinNamedRoom(roomId, roomName);
+        } else {
+            debugLog("❌ HOST ERROR: " + err.type);
+            document.getElementById('room-id-display').innerText = "Failed";
+        }
+    });
+    peer.on('connection', (conn) => {
+        clientConnections.push(conn);
+        conn.on('open', () => debugLog("New player connected!"));
+        conn.on('data', (data) => handleIncomingData(data));
     });
 }
 

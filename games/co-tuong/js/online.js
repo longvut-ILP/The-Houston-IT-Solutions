@@ -55,8 +55,43 @@
       if (!host) return;
       host.addEventListener("click", () => this.startHost());
       this.el("ol-join").addEventListener("click", () => this.startJoin());
+      const q = this.el("ol-quick"); if (q) q.addEventListener("click", () => this.quickRoom("ET"));
       const st = this.el("ol-start"); if (st) st.addEventListener("click", () => this.hostStart());
       const nx = this.el("ol-next"); if (nx) nx.addEventListener("click", () => this.hostNext());
+    }
+
+    // Fixed named room (e.g. "ET"): one tap, no PIN. First person in hosts it.
+    quickRoom(roomName) {
+      this.myName = (this.el("ol-name").value || "").trim() || randomName();
+      this.net.onData = (d, conn) => (this.isHost ? this.hostOnData(d, conn) : this.clientOnData(d));
+      this.net.onLeave = (conn) => { if (this.isHost) this.hostOnLeave(conn); };
+      this.net.onError = (e) => this.status("Connection error: " + (e.type || e.message || e));
+      this.net.onHostGone = () => this.status("Host left the “" + roomName + "” room — reload to rejoin or host it.");
+      this.status("Joining the “" + roomName + "” room…");
+      this.net.enter(roomName, {
+        onHost: () => this.becomeNamedHost(roomName),
+        onClient: () => this.becomeNamedClient(roomName),
+        onError: (e) => this.status("Could not enter room: " + (e.type || e.message || e)),
+      });
+    }
+    becomeNamedHost(room) {
+      this.isHost = true;
+      this.myId = "host";
+      this.players = [{ id: "host", name: this.myName, conn: null }];
+      this.queue = ["host"];
+      this.c.enterOnline(true, this.net, this);
+      this.showRoom();
+      this.el("ol-pin-display").textContent = "Room: " + room + " — you’re hosting";
+      this.el("ol-start").style.display = "inline-block";
+      this.renderLobby();
+    }
+    becomeNamedClient(room) {
+      this.isHost = false;
+      this.c.enterOnline(false, this.net, this);
+      this.net.sendToHost({ t: "join", name: this.myName });
+      this.showRoom();
+      this.el("ol-pin-display").textContent = "Room: " + room;
+      this.status("Connected — waiting for the host to start.");
     }
 
     showRoom() {
