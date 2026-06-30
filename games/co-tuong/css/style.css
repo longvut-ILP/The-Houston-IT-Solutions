@@ -119,31 +119,45 @@ body {
   font-size: calc(var(--cell) * 0.46);
   cursor: pointer;
   user-select: none;
-  background: radial-gradient(circle at 35% 30%, #fff6e2, #e7cfa3 70%, #cdaa72 100%);
-  box-shadow:
-    0 3px 5px rgba(0, 0, 0, 0.35),
-    inset 0 0 0 2px #b9914f,
-    inset 0 0 0 4px #f4e6c8;
+  box-sizing: border-box;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  background-color: #7a5a2e;
+  background-image: radial-gradient(circle at 35% 28%,
+    rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 42%, rgba(0, 0, 0, 0.22));
+  border: 3px solid transparent;
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.4);
   transition: transform 0.08s ease, box-shadow 0.12s ease;
 }
 .piece:hover { transform: translate(-50%, -50%) scale(1.05); }
-.piece.red   { color: var(--red); }
-.piece.black { color: var(--black); }
+/* Side ring: red = your side (gold), black = opponent (dark) */
+.piece.red   { border-color: #ffd87a; }
+.piece.black { border-color: #0c1320; }
+/* Piece type → disc colour (your side: bright) */
+.piece.pt-K { background-color: #c0392b; } /* General  */
+.piece.pt-A { background-color: #8e44ad; } /* Advisor  */
+.piece.pt-E { background-color: #117a65; } /* Elephant */
+.piece.pt-H { background-color: #c87f0a; } /* Horse    */
+.piece.pt-R { background-color: #2563eb; } /* Chariot  */
+.piece.pt-C { background-color: #d6336c; } /* Cannon   */
+.piece.pt-S { background-color: #2f9e44; } /* Soldier  */
+/* Opponent side: darker, slightly greyed version of the same hue */
+.piece.black.pt-K { background-color: #5e2a24; } /* General  */
+.piece.black.pt-A { background-color: #482a57; } /* Advisor  */
+.piece.black.pt-E { background-color: #103e35; } /* Elephant */
+.piece.black.pt-H { background-color: #6a4413; } /* Horse    */
+.piece.black.pt-R { background-color: #1d3a6b; } /* Chariot  */
+.piece.black.pt-C { background-color: #6b2841; } /* Cannon   */
+.piece.black.pt-S { background-color: #235230; } /* Soldier  */
 .piece.selected {
-  box-shadow:
-    0 0 0 3px #f5d98a,
-    0 4px 8px rgba(0, 0, 0, 0.45),
-    inset 0 0 0 2px #b9914f,
-    inset 0 0 0 4px #f4e6c8;
+  box-shadow: 0 0 0 3px #f5d98a, 0 4px 9px rgba(0, 0, 0, 0.5);
 }
 .piece.in-check {
   animation: check-pulse 0.9s ease-in-out infinite;
 }
 @keyframes check-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px #e0463f, 0 3px 5px rgba(0,0,0,0.35),
-             inset 0 0 0 2px #b9914f, inset 0 0 0 4px #f4e6c8; }
-  50%      { box-shadow: 0 0 0 5px rgba(224,70,63,0.55), 0 3px 5px rgba(0,0,0,0.35),
-             inset 0 0 0 2px #b9914f, inset 0 0 0 4px #f4e6c8; }
+  0%, 100% { box-shadow: 0 0 0 2px #e0463f, 0 3px 5px rgba(0,0,0,0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(224,70,63,0.6), 0 3px 5px rgba(0,0,0,0.4); }
 }
 
 /* ---------- Move markers ---------- */

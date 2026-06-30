@@ -150,7 +150,7 @@
       this._markers = [];
       for (const p of pieces) {
         const el = document.createElement("div");
-        el.className = `piece ${p.side === XQ.RED ? "red" : "black"}`;
+        el.className = `piece ${p.side === XQ.RED ? "red" : "black"} pt-${p.type}`;
         if (selected && selected.file === p.file && selected.rank === p.rank)
           el.classList.add("selected");
         if (checkSquare && checkSquare.file === p.file && checkSquare.rank === p.rank)
