@@ -151,9 +151,15 @@ button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filt
 <p style="margin: 0 0 5px 0; font-size: 0.9em; color: #ccc;">Tell your friends this room (PIN or name):</p>
 <span id="lobby-room-id" style="font-size: 2rem; font-weight: bold; letter-spacing: 5px; color: #ffeb3b;">...</span>
 </div>
-<p>Players Connected: <span id="player-count">1</span>/4</p>
+<p>Players at the table: <span id="player-count">1</span>/4</p>
 <ul id="player-list"></ul>
+<div id="waiting-box" style="display:none; background:#2a2a2a; padding:10px; border-radius:5px; margin:10px 0;">
+  <p style="margin:0 0 5px 0; font-size:0.9em; color:#ffb74d;">⏳ Waiting line (next up):</p>
+  <ol id="waiting-list" style="margin:0; padding-left:20px;"></ol>
+</div>
+<p id="lobby-status" style="display:none; font-size:0.9em; color:#9ccc65; margin:10px 0;"></p>
 <button id="start-game-btn" style="display: none;">Start Game / Next Round</button>
+<button id="leave-lobby-btn" class="btn-danger" style="margin-top:10px;">🚪 Leave Room</button>
 </div>
 <div id="game-section" class="box" style="max-width: 800px; display: none;">
 <h2>Game Board</h2>
@@ -207,6 +213,7 @@ button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filt
 
 <!-- Host Control to Deal Next Round -->
 <button id="next-round-btn" style="display:none; background:#4caf50; color:white; margin-top: 20px;">Deal Next Round</button>
+<button id="leave-game-btn" class="btn-danger" style="margin-top: 20px;">🚪 Leave Room</button>
 </div>
 <script>
 // DOM Event Listeners
@@ -216,6 +223,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('quick-et-btn').addEventListener('click', () => enterNamedRoom('ET'));
     document.getElementById('start-game-btn').addEventListener('click', startGame);
     document.getElementById('next-round-btn').addEventListener('click', startGame);
+    document.getElementById('leave-lobby-btn').addEventListener('click', leaveRoom);
+    document.getElementById('leave-game-btn').addEventListener('click', leaveRoom);
     document.getElementById('play-btn').addEventListener('click', playSelectedCards);
     document.getElementById('pass-btn').addEventListener('click', passTurn);
     document.getElementById('revert-btn').addEventListener('click', revertLastPlay);
@@ -236,6 +245,13 @@ let currentHand = [];
 let lastPlayedCards = [];
 let finishedPlayers = [];
 let isHost = false;
+
+// --- Seating / waiting line ---
+const MAX_SEATS = 4;               // Tiến Lên seats up to 4 (13 cards each)
+let waitingPlayers = [];           // names in line (host-authoritative, mirrored to clients)
+let connByName = {};               // host only: player name -> DataConnection
+let gameInProgress = false;        // host: a hand is currently being played
+let lobbyInProgress = false;       // client: host says a game is running
 
 // Tracker Variables
 let cardCounts = {};
@@ -419,7 +435,8 @@ function startHost() {
         peer.on('connection', (conn) => {
             clientConnections.push(conn);
             conn.on('open', () => debugLog("Host: New client connected!"));
-            conn.on('data', (data) => handleIncomingData(data));
+            conn.on('data', (data) => handleIncomingData(data, conn));
+            conn.on('close', () => handlePlayerGone(conn.playerName));
         });
     }
     attemptHostConnection();
@@ -450,6 +467,7 @@ function joinRoom() {
             hostConnection.send({ type: 'JOIN_LOBBY', name: myName });
         });
         hostConnection.on('data', (data) => handleIncomingData(data));
+        hostConnection.on('close', handleHostClosed);
     });
 
     peer.on('error', (err) => {
@@ -495,6 +513,7 @@ function tryJoinNamedRoom(roomId, roomName) {
             conn.send({ type: 'JOIN_LOBBY', name: myName });
         });
         conn.on('data', (data) => handleIncomingData(data));
+        conn.on('close', handleHostClosed);
     });
     peer.on('error', (err) => {
         if (err.type === 'peer-unavailable') fallbackToHost();
@@ -526,24 +545,51 @@ function becomeNamedHost(roomId, roomName) {
     peer.on('connection', (conn) => {
         clientConnections.push(conn);
         conn.on('open', () => debugLog("New player connected!"));
-        conn.on('data', (data) => handleIncomingData(data));
+        conn.on('data', (data) => handleIncomingData(data, conn));
+        conn.on('close', () => handlePlayerGone(conn.playerName));
     });
 }
 
 // --- CENTRAL MESSAGE HANDLING ---
-function handleIncomingData(data) {
+function handleIncomingData(data, conn) {
     if (data.type === 'JOIN_LOBBY') {
-        players.push(data.name);
+        // Host assigns a unique name, seats the player if there's room,
+        // otherwise puts them in the waiting line.
+        const name = uniqueName(data.name);
+        if (conn) { conn.playerName = name; connByName[name] = conn; }
+        if (!gameInProgress && players.length < MAX_SEATS) players.push(name);
+        else waitingPlayers.push(name);
+        if (conn) conn.send({ type: 'YOUR_NAME', name: name });
+        broadcastLobby();
         updateLobbyUI();
-        broadcastToClients({ type: 'UPDATE_LOBBY', players: players });
+    }
+    if (data.type === 'YOUR_NAME') {
+        myName = data.name; // host may have adjusted it for uniqueness
     }
     if (data.type === 'UPDATE_LOBBY') {
         players = data.players;
+        waitingPlayers = data.waiting || [];
+        lobbyInProgress = !!data.inProgress;
         updateLobbyUI();
+    }
+    if (data.type === 'LEAVE') {
+        if (isHost) handlePlayerGone(conn ? conn.playerName : data.name);
+    }
+    if (data.type === 'RETURN_LOBBY') {
+        players = data.players || players;
+        waitingPlayers = data.waiting || [];
+        lobbyInProgress = !!data.inProgress;
+        returnToLobby(data.reason);
+    }
+    if (data.type === 'ROOM_CLOSED') {
+        handleHostClosed();
     }
 
     if (data.type === 'START_GAME') {
         gameLowestCard = data.lowestCard;
+        if (data.players) players = data.players;
+        if (data.waiting) waitingPlayers = data.waiting;
+        lobbyInProgress = true;
         finishedPlayers = [];
         currentTableCards = [];
         consecutivePasses = 0;
@@ -623,7 +669,14 @@ function handleIncomingData(data) {
                 clearInterval(turnTimerInterval);
                 document.getElementById('timer-display').style.display = 'none';
                 document.getElementById('turn-indicator').innerText = "Game Over!";
-                if (isHost) document.getElementById('next-round-btn').style.display = 'inline-block';
+                if (isHost) {
+                    gameInProgress = false;
+                    document.getElementById('next-round-btn').style.display = 'inline-block';
+                    const loser = players.find(p => !finishedPlayers.includes(p));
+                    if (loser && waitingPlayers.length > 0) {
+                        logGame(`${loser} will sit out next round — someone in line is up.`);
+                    }
+                }
             }
         }
 
@@ -951,6 +1004,14 @@ function startTurnTimer() {
 
 // --- UTILITIES ---
 function startGame() {
+    // Loser-rotation: if a game just finished and people are waiting, the player
+    // who didn't finish (the loser) goes to the back of the line and the next
+    // person in line takes their seat. (finishedPlayers still holds last game.)
+    if (finishedPlayers.length > 0 && waitingPlayers.length > 0) {
+        rotateLoser();
+    }
+    if (players.length < 2) { alert("Need at least 2 players to start."); return; }
+
     finishedPlayers = [];
     currentTableCards = [];
     consecutivePasses = 0;
@@ -979,10 +1040,6 @@ function startGame() {
     for (let i = 0; i < players.length; i++) {
         allHands.push(sortCards(deck.slice(i * 13, (i + 1) * 13)));
     }
-
-    const firstIndex = 0;
-    currentHand = allHands[firstIndex];
-    renderHand(currentHand);
 
     let startingPlayerIndex = 0;
     gameLowestCard = null;
@@ -1023,11 +1080,28 @@ function startGame() {
         debugLog(`First Round: Lowest card dealt is ${gameLowestCard.label}${gameLowestCard.suit}. Player ${players[startingPlayerIndex]} starts.`);
     }
 
-    clientConnections.forEach((c, i) => {
-        c.send({ type: 'START_GAME', lowestCard: gameLowestCard });
-        c.send({ type: 'DEAL', cards: allHands[i + 1] });
-        c.send({ type: 'SYNC_SCORES', scores: playerScores, history: roundHistory });
+    // Deal by NAME so seating/rotation no longer depends on connection order.
+    // Seated clients get their hand; everyone still in line is sent to the lobby.
+    Object.keys(connByName).forEach(name => {
+        const c = connByName[name];
+        if (!c) return;
+        const idx = players.indexOf(name);
+        if (idx !== -1) {
+            c.send({ type: 'START_GAME', lowestCard: gameLowestCard, players: players, waiting: waitingPlayers });
+            c.send({ type: 'DEAL', cards: allHands[idx] });
+            c.send({ type: 'SYNC_SCORES', scores: playerScores, history: roundHistory });
+        } else {
+            c.send({ type: 'RETURN_LOBBY', players: players, waiting: waitingPlayers,
+                     inProgress: true, reason: "You're in line — you'll be dealt in when a seat opens." });
+        }
     });
+
+    // The host's own hand (or spectator view if the host is sitting out).
+    const myIdx = players.indexOf(myName);
+    if (myIdx !== -1) { currentHand = allHands[myIdx]; renderHand(currentHand); }
+    else { currentHand = []; renderHand(currentHand); logGame("You're sitting out this round — watching."); }
+
+    gameInProgress = true;
 
     if (isHost) {
         currentTurnIndex = startingPlayerIndex;
@@ -1117,10 +1191,42 @@ function updateLobbyUI() {
     list.innerHTML = "";
     players.forEach(name => {
         let li = document.createElement('li');
-        li.innerText = name;
+        li.innerText = name + (name === myName ? "  (you)" : "");
         li.style.margin = "5px";
         list.appendChild(li);
     });
+
+    // Waiting line
+    const waitBox = document.getElementById('waiting-box');
+    const waitList = document.getElementById('waiting-list');
+    if (waitBox && waitList) {
+        if (waitingPlayers.length > 0) {
+            waitBox.style.display = 'block';
+            waitList.innerHTML = "";
+            waitingPlayers.forEach((name, i) => {
+                let li = document.createElement('li');
+                li.innerText = (i + 1) + ". " + name + (name === myName ? "  (you)" : "");
+                li.style.margin = "4px";
+                waitList.appendChild(li);
+            });
+        } else {
+            waitBox.style.display = 'none';
+        }
+    }
+
+    // Status note
+    const note = document.getElementById('lobby-status');
+    if (note) {
+        if (lobbyInProgress && !players.includes(myName)) {
+            note.style.display = 'block';
+            note.innerText = "A game is in progress. You're in line — you'll be dealt in when a seat opens.";
+        } else if (waitingPlayers.includes(myName)) {
+            note.style.display = 'block';
+            note.innerText = "Table is full (4). You're in line — the next round's loser will swap out for you.";
+        } else {
+            note.style.display = 'none';
+        }
+    }
 }
 
 function updateLeaderboardUI() {
@@ -1168,6 +1274,108 @@ function updateRoundHistoryUI() {
 }
 
 function broadcastToClients(data) { clientConnections.forEach(c => c.send(data)); }
+
+// ===== Seating / waiting-line helpers (host-authoritative) =====
+
+// Make a name unique within the room (so turn logic keyed on names is safe).
+function uniqueName(raw) {
+    let base = (raw && raw.trim()) || ("Player " + Math.floor(1000 + Math.random() * 9000));
+    const taken = new Set([...players, ...waitingPlayers]);
+    if (!taken.has(base)) return base;
+    let i = 2;
+    while (taken.has(base + " (" + i + ")")) i++;
+    return base + " (" + i + ")";
+}
+
+// Tell every client the current seating + waiting line.
+function broadcastLobby() {
+    broadcastToClients({ type: 'UPDATE_LOBBY', players: players, waiting: waitingPlayers, inProgress: gameInProgress });
+}
+
+// Fill any open seats from the front of the line (used in the lobby / after a leave).
+function promoteFromWaiting() {
+    while (players.length < MAX_SEATS && waitingPlayers.length > 0) {
+        players.push(waitingPlayers.shift());
+    }
+}
+
+// Loser of the finished game -> back of the line; next in line -> a seat.
+function rotateLoser() {
+    const loser = players.find(p => !finishedPlayers.includes(p));
+    if (!loser) return;
+    players = players.filter(p => p !== loser);
+    waitingPlayers.push(loser);
+    promoteFromWaiting();
+    const incoming = players[players.length - 1];
+    logGame(`${loser} sits out — ${incoming} takes the seat.`);
+}
+
+// A client disconnected or pressed Leave (host side).
+function handlePlayerGone(name) {
+    if (!name) return;
+    clientConnections = clientConnections.filter(c => c.playerName !== name);
+    delete connByName[name];
+    const wasSeated = players.includes(name);
+    waitingPlayers = waitingPlayers.filter(n => n !== name);
+    players = players.filter(n => n !== name);
+    logGame(`${name} left the room.`);
+
+    if (wasSeated && gameInProgress) {
+        // Can't safely continue a hand that lost a seated player — reset to lobby.
+        promoteFromWaiting();
+        abortGameToLobby(`${name} left mid-game — back to the lobby.`);
+        return;
+    }
+    if (wasSeated) promoteFromWaiting(); // fill the empty seat from the line
+    broadcastLobby();
+    updateLobbyUI();
+}
+
+// Host: stop the current hand and send everyone back to the lobby.
+function abortGameToLobby(reason) {
+    gameInProgress = false;
+    finishedPlayers = [];
+    currentTableCards = [];
+    consecutivePasses = 0;
+    trickLeader = null;
+    passedPlayers = [];
+    clearInterval(turnTimerInterval);
+    broadcastToClients({ type: 'RETURN_LOBBY', players: players, waiting: waitingPlayers, inProgress: false, reason: reason });
+    returnToLobby(reason);
+}
+
+// Show the lobby (used on host return / waiting / mid-game abort).
+function returnToLobby(reason) {
+    document.getElementById('game-section').style.display = "none";
+    document.getElementById('lobby-section').style.display = "block";
+    if (reason) { try { logGame(reason); } catch (e) {} }
+    updateLobbyUI();
+}
+
+// Leave the room (works for host and clients).
+function leaveRoom() {
+    if (!confirm("Leave this room?")) return;
+    try {
+        if (isHost) {
+            broadcastToClients({ type: 'ROOM_CLOSED' });
+            setTimeout(() => { try { peer && peer.destroy(); } catch (e) {} location.reload(); }, 250);
+            return;
+        } else if (hostConnection) {
+            try { hostConnection.send({ type: 'LEAVE', name: myName }); } catch (e) {}
+        }
+    } catch (e) {}
+    try { peer && peer.destroy(); } catch (e) {}
+    location.reload();
+}
+
+// A client noticed the host/room is gone.
+let hostClosedHandled = false;
+function handleHostClosed() {
+    if (isHost || hostClosedHandled) return;
+    hostClosedHandled = true;
+    alert("The room was closed by the host.");
+    location.reload();
+}
 
 function triggerWinVisuals(winnerName, placeNum) {
     if (placeNum === 1 && typeof confetti === 'function') {
