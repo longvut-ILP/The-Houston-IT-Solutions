@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Co Tướng — Xiangqi</title>
+
+  <!-- Typography: Grenze (logo), Averia Serif Libre (headings), Poppins (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Averia+Serif+Libre:wght@400;700&family=Grenze:wght@500;700&family=Poppins:wght@300;400;500;600&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="logo">象棋 · Co Tướng</h1>
+    <p class="tagline">Chinese Chess — Xiangqi Web App</p>
+    <p style="margin:4px 0 0;"><a href="../../games.html" style="color:#f5d98a; font-size:13px; text-decoration:none;">← Back to Arcade</a></p>
+    <button id="help-open" class="btn btn-sm help-btn">📖 How to Play</button>
+  </header>
+
+  <main class="app-main">
+    <!-- VIEW: the interactive board -->
+    <section class="board-panel">
+      <div id="board-wrap" class="board-wrap">
+        <canvas id="board-canvas" class="board-canvas"></canvas>
+        <!-- Pieces are injected here as positioned DOM elements -->
+        <div id="piece-layer" class="piece-layer"></div>
+      </div>
+    </section>
+
+    <!-- Side panel: turn indicator + move log scaffold -->
+    <aside class="side-panel">
+      <h2 class="panel-title">Match</h2>
+      <div class="turn-indicator">
+        <span class="turn-dot" id="turn-dot"></span>
+        <span id="turn-label">Red to move</span>
+      </div>
+
+      <div class="controls">
+        <button id="btn-new" class="btn">New Game</button>
+        <label class="ctl">
+          <input type="checkbox" id="ai-toggle" checked />
+          AI plays Black
+        </label>
+        <label class="ctl">
+          Difficulty
+          <select id="ai-depth">
+            <option value="2">Easy</option>
+            <option value="3" selected>Medium</option>
+            <option value="4">Hard</option>
+          </select>
+        </label>
+        <div id="ai-status" class="ai-status"></div>
+      </div>
+
+      <h2 class="panel-title">Office Tournament</h2>
+      <div class="tn-entry">
+        <input id="tn-name" type="text" placeholder="Add player name" maxlength="24" />
+        <button id="tn-add" class="btn btn-sm">Add</button>
+      </div>
+      <div class="tn-actions">
+        <button id="tn-ai" class="btn btn-sm">Add 🤖 Computer</button>
+      </div>
+      <div class="tn-actions">
+        <button id="tn-start" class="btn btn-sm" disabled>Start</button>
+        <button id="tn-reset" class="btn btn-sm">Reset</button>
+      </div>
+      <div id="tn-body" class="tn-body"></div>
+
+      <h2 class="panel-title">Captured</h2>
+      <div class="captured" id="captured-red" aria-label="Red captures"></div>
+      <div class="captured" id="captured-black" aria-label="Black captures"></div>
+
+      <h2 class="panel-title">Move Log (ICCS)</h2>
+      <ol class="move-log" id="move-log"></ol>
+    </aside>
+  </main>
+
+  <!-- How to Play modal -->
+  <div id="help-modal" class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="help-card">
+      <button id="help-close" class="help-close" aria-label="Close">×</button>
+      <h2 id="help-title">How to Play Co Tướng (Xiangqi)</h2>
+
+      <p><b>Goal:</b> checkmate the enemy General — leave it under attack with no legal escape.</p>
+
+      <h3>Making a move</h3>
+      <p>Click one of your pieces. Its legal moves appear as green dots (empty squares)
+         and red rings (captures). Click a marker to move there, or click the piece again
+         to deselect. Red moves first.</p>
+
+      <h3>The pieces</h3>
+      <ul class="help-pieces">
+        <li><span class="help-piece red">帥</span>/<span class="help-piece">將</span>
+            <b>General</b> — one step orthogonally, stays inside the 3×3 palace. The two
+            Generals may never face each other down an open file.</li>
+        <li><span class="help-piece red">仕</span>/<span class="help-piece">士</span>
+            <b>Advisor</b> — one step diagonally, inside the palace.</li>
+        <li><span class="help-piece red">相</span>/<span class="help-piece">象</span>
+            <b>Elephant</b> — two points diagonally, can’t cross the river and is blocked
+            if the midpoint is occupied.</li>
+        <li><span class="help-piece red">傌</span>/<span class="help-piece">馬</span>
+            <b>Horse</b> — one straight then one diagonal (an “L”); blocked if a piece sits
+            beside it in the straight direction.</li>
+        <li><span class="help-piece red">俥</span>/<span class="help-piece">車</span>
+            <b>Chariot</b> — any distance in a straight line (like a rook).</li>
+        <li><span class="help-piece red">炮</span>/<span class="help-piece">砲</span>
+            <b>Cannon</b> — moves like a chariot, but to capture it must jump exactly one
+            piece (the “screen”).</li>
+        <li><span class="help-piece red">兵</span>/<span class="help-piece">卒</span>
+            <b>Soldier</b> — one step forward; after crossing the river it may also step
+            sideways. Never moves backward.</li>
+      </ul>
+
+      <h3>Repetition (WXF rules)</h3>
+      <p>Endlessly repeating a position is judged: forcing a <b>perpetual check</b> or a
+         <b>perpetual chase</b> of an unprotected piece loses for the offender. Other
+         repetitions (idle shuffles, even exchanges) are a <b>draw</b>.</p>
+
+      <h3>Playing the Computer</h3>
+      <p>Tick <b>“AI plays Black”</b> to play against the engine, and pick a
+         <b>Difficulty</b>. Untick it to play another person on the same screen.</p>
+
+      <h3>Office Tournament</h3>
+      <p>Type each person’s name and press <b>Add</b> (Enter works too). With two or more
+         in line, press <b>Start</b>. The winner stays on, the loser goes to the back of
+         the line, a draw keeps the champion, and colours swap each game. A 🔥 streak
+         marks the King of the Hill. Press <b>Add 🤖 Computer</b> to drop the engine into
+         the line as a contender. When a game ends, press <b>Start next match ▶</b> to
+         bring in the next challenger.</p>
+
+      <div class="help-actions">
+        <button id="help-ok" class="btn">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODEL -->
+  <script src="js/model/constants.js"></script>
+  <script src="js/model/pieces.js"></script>
+  <script src="js/model/zobrist.js"></script>
+  <script src="js/model/game.js"></script>
+  <script src="js/model/repetition.js"></script>
+  <!-- VIEW -->
+  <script src="js/view/board.js"></script>
+  <!-- AI -->
+  <script src="js/ai/evaluate.js"></script>
+  <script src="js/ai/search.js"></script>
+  <script src="js/ai/ucci.js"></script>
+  <!-- CONTROLLER / bootstrap -->
+  <script src="js/tournament.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/help.js"></script>
+</body>
+</html>
