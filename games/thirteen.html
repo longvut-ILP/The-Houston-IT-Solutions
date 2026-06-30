@@ -54,6 +54,18 @@ button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filt
   80% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
+/* Glowing highlight for the player whose turn it is (turn-order strip) */
+.turn-chip { transition: box-shadow .2s ease, background .2s ease, transform .2s ease; }
+.turn-chip.turn-active {
+  background: rgba(16,185,129,0.20);
+  border-color: #10b981 !important;
+  transform: translateY(-2px);
+  animation: turnGlow 1.2s ease-in-out infinite;
+}
+@keyframes turnGlow {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(16,185,129,0.55), 0 0 0 0 rgba(16,185,129,0.0); }
+  50%      { box-shadow: 0 0 16px 4px rgba(16,185,129,0.95), 0 0 26px 8px rgba(16,185,129,0.45); }
+}
 .winner-banner {
   position: fixed;
   top: 40%;
@@ -1197,10 +1209,10 @@ function renderTurnOrder() {
             && !finishedPlayers.includes(p);
         const place = finishedPlayers.indexOf(p);
         const chip = document.createElement('div');
+        chip.className = 'turn-chip' + (isCurrent ? ' turn-active' : '');
         chip.style.cssText = 'display:flex;flex-direction:column;align-items:center;min-width:66px;'
             + 'padding:6px 8px;border-radius:10px;font-size:0.78rem;'
-            + 'border:2px solid ' + (isCurrent ? '#10b981' : 'transparent') + ';'
-            + 'background:' + (isCurrent ? 'rgba(16,185,129,0.18)' : '#0f1726') + ';';
+            + 'border:2px solid transparent;background:#0f1726;';
         const order = document.createElement('div');
         order.style.cssText = 'font-size:0.68rem;color:#93a3c0;';
         order.innerText = '#' + (i + 1);
