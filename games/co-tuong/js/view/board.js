@@ -149,6 +149,23 @@
       }
     }
 
+    // Highlight the most recent move's origin and destination so the player
+    // can follow it (used for the AI's reply). Squares sit UNDER the pieces.
+    // Cleared automatically on the next renderPieces() (it wipes the layer).
+    highlightMove(from, to) {
+      const place = (sq, cls) => {
+        if (!sq) return;
+        const el = document.createElement("div");
+        el.className = `last-move ${cls}`;
+        const { x, y } = this.xy(sq.file, sq.rank);
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        this.layer.prepend(el); // prepend → painted behind the piece glyphs
+      };
+      place(from, "from");
+      place(to, "to");
+    }
+
     // Draw clickable markers on legal destination squares.
     // moves: array of {to:{file,rank}}, captures show a ring, empties a dot.
     renderMarkers(moves, board, onMarkerClick) {

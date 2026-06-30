@@ -166,6 +166,31 @@ body {
 }
 .move-marker:hover { filter: brightness(1.25); }
 
+/* ---------- Last move highlight (e.g. the AI's reply) ---------- */
+.last-move {
+  position: absolute;
+  width: calc(var(--cell) * 0.92);
+  height: calc(var(--cell) * 0.92);
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  pointer-events: none;
+  box-sizing: border-box;
+  z-index: 0;
+}
+.last-move.from {
+  background: rgba(245, 217, 138, 0.16);
+  border: 2px dashed rgba(245, 217, 138, 0.6);
+}
+.last-move.to {
+  background: rgba(245, 217, 138, 0.28);
+  border: 2px solid #f5d98a;
+  animation: lastmove-pulse 1.1s ease-in-out 3;
+}
+@keyframes lastmove-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(245, 217, 138, 0.35); }
+  50%      { box-shadow: 0 0 20px rgba(245, 217, 138, 0.9); }
+}
+
 /* ---------- Side panel ---------- */
 .side-panel {
   width: 260px;

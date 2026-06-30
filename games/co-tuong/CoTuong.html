@@ -13,6 +13,7 @@
     rel="stylesheet"
   />
 
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -58,7 +59,29 @@
         <div id="ai-status" class="ai-status"></div>
       </div>
 
-      <h2 class="panel-title">Office Tournament</h2>
+      <h2 class="panel-title">Play Online</h2>
+      <div id="ol-setup">
+        <input id="ol-name" type="text" placeholder="Your name (blank = random)" maxlength="24" />
+        <div class="tn-actions">
+          <button id="ol-host" class="btn btn-sm">Host a room</button>
+        </div>
+        <div class="tn-entry">
+          <input id="ol-pin" type="text" placeholder="4-digit room PIN" maxlength="4" />
+          <button id="ol-join" class="btn btn-sm">Join</button>
+        </div>
+        <div id="ol-status" class="ai-status"></div>
+        <div class="tn-hint">Host shares the PIN. Joiners play their match from their own
+          screen and watch the live board while they wait.</div>
+      </div>
+      <div id="ol-room" style="display:none;">
+        <div id="ol-pin-display" class="tn-result"></div>
+        <div id="ol-seat" class="tn-king"></div>
+        <div id="ol-players" class="tn-body"></div>
+        <button id="ol-start" class="btn btn-sm" style="display:none;">Start tournament</button>
+        <button id="ol-next" class="btn btn-sm" style="display:none;">Start next match ▶</button>
+      </div>
+
+      <h2 class="panel-title">Office Tournament (same screen)</h2>
       <div class="tn-entry">
         <input id="tn-name" type="text" placeholder="Add player name" maxlength="24" />
         <button id="tn-add" class="btn btn-sm">Add</button>
@@ -156,5 +179,8 @@
   <script src="js/tournament.js"></script>
   <script src="js/main.js"></script>
   <script src="js/help.js"></script>
+  <!-- ONLINE PLAY -->
+  <script src="js/net.js"></script>
+  <script src="js/online.js"></script>
 </body>
 </html>

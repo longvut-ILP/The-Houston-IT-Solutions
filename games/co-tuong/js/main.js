@@ -34,6 +34,8 @@
       this.aiBlack = !!(this.elAiToggle && this.elAiToggle.checked);
       this.thinking = false;
       this.tournamentMatch = false; // true while the tournament drives the match
+      this.onlineActive = false;    // true once hosting/joined an online room
+      this.online = null;           // { isHost, om, mySeat } when online
 
       this.ended = false;         // game-over fired guard
       this.redName = null;        // optional player names (tournament)
@@ -99,6 +101,46 @@
       this.newGame();
     }
 
+    // ---- Online play (driven by OnlineManager) ----
+    enterOnline(isHost, net, om) {
+      this.onlineActive = true;
+      this.online = { isHost: isHost, net: net, om: om, mySeat: null };
+    }
+
+    // Start an online match: reset to the opening position and record my seat.
+    // Only the host runs the engine (for an AI seat, if used); clients mirror.
+    beginOnlineMatch(redName, blackName, mySeat, opts) {
+      opts = opts || {};
+      this.onlineActive = true;
+      if (this.online) this.online.mySeat = mySeat;
+      this.redName = redName;
+      this.blackName = blackName;
+      this.tournamentMatch = true;
+      this.aiRed = this.online && this.online.isHost ? !!opts.redAI : false;
+      this.aiBlack = this.online && this.online.isHost ? !!opts.blackAI : false;
+      this.board = XQ.Board.fromFen(XQ.START_FEN);
+      this.tracker.reset(this.board);
+      this.selected = null;
+      this.legal = [];
+      this.gameOver = false;
+      this.ended = false;
+      this.thinking = false;
+      this.elLog.innerHTML = "";
+      this.elCapRed.innerHTML = "";
+      this.elCapBlack.innerHTML = "";
+      this.elAiStatus.textContent = "";
+      this.refresh();
+      if (this.online && this.online.isHost) this.maybeTriggerAI();
+    }
+
+    // Online: may I move right now? (my seat matches the side to move)
+    myTurnOnline() {
+      if (!this.online || !this.online.mySeat) return false;
+      if (this.gameOver || this.thinking) return false;
+      const seat = this.board.turn === XQ.RED ? "RED" : "BLACK";
+      return this.online.mySeat === seat;
+    }
+
     // Single funnel for every game end; fires onGameOver exactly once.
     endGame(result) {
       if (this.ended) return;
@@ -146,6 +188,7 @@
     onPieceClick(piece) {
       if (this.gameOver || this.thinking) return;
       if (this.isAITurn()) return; // the engine is on move
+      if (this.onlineActive && !this.myTurnOnline()) return; // not your turn / spectating
 
       // Clicking an enemy piece that is a legal capture target = make the move.
       if (this.selected && piece.side !== this.board.turn) {
@@ -171,6 +214,28 @@
     }
 
     onMove(move) {
+      // Online: host is authoritative (broadcast + apply); clients send to the
+      // host and apply when the move echoes back, keeping every board in sync.
+      if (this.onlineActive && this.online) {
+        if (this.online.isHost) {
+          this.online.om.broadcastMove(move);
+          this._applyMoveCore(move);
+          if (!this.gameOver) this.maybeTriggerAI();
+        } else {
+          this.online.om.sendMove(move);
+        }
+        return;
+      }
+      this._applyMoveCore(move);
+      if (this.gameOver) return;          // checkmate/stalemate set by updateStatus
+      this.maybeTriggerAI();
+    }
+
+    // Apply a move broadcast by the host (no re-broadcast, no AI trigger).
+    applyRemoteMove(move) { this._applyMoveCore(move); }
+
+    // Core move application shared by local, host and client paths.
+    _applyMoveCore(move) {
       const mover = this.board.at(move.from.file, move.from.rank);
       const captured = this.board.at(move.to.file, move.to.rank);
       const sideThatMoved = this.board.turn;
@@ -194,8 +259,8 @@
       }
 
       this.refresh();
-      if (this.gameOver) return;          // checkmate/stalemate set by updateStatus
-      this.maybeTriggerAI();
+      // Highlight the move just made (player or engine) so it's easy to follow.
+      this.view.highlightMove(move.from, move.to);
     }
 
     // If the side to move is engine-controlled, search and play after a

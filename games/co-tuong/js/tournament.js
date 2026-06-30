@@ -46,7 +46,7 @@
 
     addPlayer(name) {
       name = (name || "").trim();
-      if (!name) return false;
+      if (!name) name = "Player " + Math.floor(1000 + Math.random() * 9000);
       this.line.push(name);
       this.render();
       return true;
