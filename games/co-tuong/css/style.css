@@ -335,16 +335,67 @@ body {
 .tn-queue li { margin: 2px 0; }
 .tn-body #tn-go { width: 100%; margin-bottom: 8px; }
 
-.captured {
-  min-height: 30px;
+/* ---------- Capture trays (flank the board) ---------- */
+.cap-tray {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  font-family: "Averia Serif Libre", serif;
-  font-size: 18px;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-line);
 }
-.captured.red-cap   { color: var(--red); }
-.captured.black-cap { color: var(--black-soft); }
+.cap-top    { margin-bottom: 8px; }
+.cap-bottom { margin-top: 8px; }
+.cap-tray::before {
+  font-family: "Poppins", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+}
+.cap-top::before    { content: "Black captured"; }
+.cap-bottom::before { content: "Red captured"; }
+.cap-pc {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Averia Serif Libre", "Noto Serif SC", serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  border: 2px solid transparent;
+  background-color: #7a5a2e;
+  background-image: radial-gradient(circle at 35% 28%,
+    rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.2));
+}
+.cap-pc.red   { border-color: #ffd87a; }
+.cap-pc.black { border-color: #0c1320; }
+.cap-pc.pt-K { background-color: #c0392b; }
+.cap-pc.pt-A { background-color: #8e44ad; }
+.cap-pc.pt-E { background-color: #117a65; }
+.cap-pc.pt-H { background-color: #c87f0a; }
+.cap-pc.pt-R { background-color: #2563eb; }
+.cap-pc.pt-C { background-color: #d6336c; }
+.cap-pc.pt-S { background-color: #2f9e44; }
+.cap-pc.black.pt-K { background-color: #5e2a24; }
+.cap-pc.black.pt-A { background-color: #482a57; }
+.cap-pc.black.pt-E { background-color: #103e35; }
+.cap-pc.black.pt-H { background-color: #6a4413; }
+.cap-pc.black.pt-R { background-color: #1d3a6b; }
+.cap-pc.black.pt-C { background-color: #6b2841; }
+.cap-pc.black.pt-S { background-color: #235230; }
 
 .move-log {
   margin: 0;

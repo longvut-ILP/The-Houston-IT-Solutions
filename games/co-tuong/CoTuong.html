@@ -27,11 +27,13 @@
   <main class="app-main">
     <!-- VIEW: the interactive board -->
     <section class="board-panel">
+      <div class="cap-tray cap-top" id="cap-top" aria-label="Pieces Black has captured"></div>
       <div id="board-wrap" class="board-wrap">
         <canvas id="board-canvas" class="board-canvas"></canvas>
         <!-- Pieces are injected here as positioned DOM elements -->
         <div id="piece-layer" class="piece-layer"></div>
       </div>
+      <div class="cap-tray cap-bottom" id="cap-bottom" aria-label="Pieces Red has captured"></div>
     </section>
 
     <!-- Side panel: turn indicator + move log scaffold -->
@@ -84,10 +86,6 @@
         <button id="ol-start" class="btn btn-sm" style="display:none;">Start tournament</button>
         <button id="ol-next" class="btn btn-sm" style="display:none;">Start next match ▶</button>
       </div>
-
-      <h2 class="panel-title">Captured</h2>
-      <div class="captured" id="captured-red" aria-label="Red captures"></div>
-      <div class="captured" id="captured-black" aria-label="Black captures"></div>
 
       <h2 class="panel-title">Move Log (ICCS)</h2>
       <ol class="move-log" id="move-log"></ol>

@@ -22,8 +22,10 @@
       this.elTurnDot = document.getElementById("turn-dot");
       this.elTurnLabel = document.getElementById("turn-label");
       this.elLog = document.getElementById("move-log");
-      this.elCapRed = document.getElementById("captured-red");
-      this.elCapBlack = document.getElementById("captured-black");
+      // Captured red pieces were taken BY Black -> shown in Black's tray (top).
+      // Captured black pieces were taken BY Red -> shown in Red's tray (bottom).
+      this.elCapRed = document.getElementById("cap-top");
+      this.elCapBlack = document.getElementById("cap-bottom");
 
       // AI controls
       this.elAiToggle = document.getElementById("ai-toggle");
@@ -323,11 +325,12 @@
     }
 
     addCapture(piece) {
+      // Show the captured piece in the capturing side's tray, as a mini disc
+      // matching the board's colour scheme.
       const box = piece.side === XQ.RED ? this.elCapRed : this.elCapBlack;
       const span = document.createElement("span");
+      span.className = `cap-pc ${piece.side === XQ.RED ? "red" : "black"} pt-${piece.type}`;
       span.textContent = piece.glyph;
-      span.style.color = piece.side === XQ.RED
-        ? "var(--red)" : "var(--black-soft)";
       box.appendChild(span);
     }
 
