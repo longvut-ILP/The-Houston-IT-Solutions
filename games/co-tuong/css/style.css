@@ -20,11 +20,14 @@
   --red-soft: #f3d9d2;
   --black-soft: #d8d8d8;
 
-  --bg: #20140c;
-  --panel: #2c1d12;
-  --panel-line: #4a3320;
-  --text: #f2e6d6;
-  --muted: #c2ab90;
+  --bg: #0f1726;
+  --panel: #18233b;
+  --panel-line: rgba(255,255,255,0.08);
+  --text: #e8eef9;
+  --muted: #93a3c0;
+  --accent: #10b981;
+  --gold: #f4c150;
+  --field: #0f1726;
 }
 
 * { box-sizing: border-box; }
@@ -35,7 +38,7 @@ body {
   font-weight: 300;
   color: var(--text);
   background:
-    radial-gradient(1200px 600px at 50% -10%, #3a2415 0%, var(--bg) 60%);
+    radial-gradient(1200px 600px at 50% -10%, #16213a 0%, var(--bg) 60%);
   min-height: 100vh;
 }
 
@@ -50,8 +53,8 @@ body {
   font-size: 56px;
   letter-spacing: 1px;
   margin: 0;
-  color: #f5d98a;
-  text-shadow: 0 2px 0 #7a4a1c, 0 0 26px rgba(245, 217, 138, 0.25);
+  color: #f4c150;
+  text-shadow: 0 2px 0 #0b1220, 0 0 26px rgba(244, 193, 80, 0.22);
 }
 .tagline {
   font-family: "Poppins", sans-serif;
@@ -233,17 +236,19 @@ body {
   gap: 10px;
 }
 .btn {
-  font-family: "Averia Serif Libre", serif;
+  font-family: "Poppins", sans-serif;
+  font-weight: 600;
   font-size: 14px;
-  color: #2c1d12;
-  background: linear-gradient(160deg, #f5d98a, #e2b16a);
-  border: 1px solid #b9914f;
-  border-radius: 8px;
-  padding: 8px 12px;
+  color: #06281e;
+  background: var(--accent);
+  border: none;
+  border-radius: 11px;
+  padding: 9px 14px;
   cursor: pointer;
-  transition: filter 0.12s ease;
+  transition: filter 0.12s ease, transform 0.06s ease;
 }
-.btn:hover { filter: brightness(1.06); }
+.btn:hover { filter: brightness(1.07); }
+.btn:active { transform: scale(0.985); }
 .ctl {
   display: flex;
   align-items: center;
@@ -253,7 +258,7 @@ body {
 }
 .ctl select {
   margin-left: auto;
-  background: #20140c;
+  background: var(--field);
   color: var(--text);
   border: 1px solid var(--panel-line);
   border-radius: 6px;
@@ -274,7 +279,7 @@ body {
 .tn-entry input {
   flex: 1;
   min-width: 0;
-  background: #20140c;
+  background: var(--field);
   color: var(--text);
   border: 1px solid var(--panel-line);
   border-radius: 6px;

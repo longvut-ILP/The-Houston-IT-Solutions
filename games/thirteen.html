@@ -15,25 +15,38 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
 <style>
-body { background: #1b5e20; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 10px; }
-.box { background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 10px auto; width: 100%; max-width: 450px; box-sizing: border-box; }
-button { padding: 10px; cursor: pointer; background: #ffeb3b; color: #333; border: none; font-weight: bold; border-radius: 5px; margin-top: 10px; width: 100%; transition: background 0.2s; }
-button:disabled { background: #888; color: #ccc; cursor: not-allowed; }
-.btn-danger { background: #f44336; color: white; }
-.btn-pass { background: #2196f3; color: white; }
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+
+body { background: #0f1726; color: #e8eef9; font-family: 'Poppins', system-ui, sans-serif; font-weight: 300; text-align: center; margin: 0; padding: 14px; }
+h1 { font-weight: 600; letter-spacing: .3px; margin: 14px 0 6px; }
+h2, h3 { font-weight: 600; }
+
+.box { background: #18233b; border: 1px solid rgba(255,255,255,0.08); padding: 18px; border-radius: 16px; margin: 12px auto; width: 100%; max-width: 460px; box-sizing: border-box; }
+
+input { background: #0f1726; color: #e8eef9; border: 1px solid rgba(255,255,255,0.12); border-radius: 9px; font-family: inherit; font-size: 0.95rem; box-sizing: border-box; }
+input::placeholder { color: #93a3c0; }
+input:focus { outline: none; border-color: #10b981; }
+
+button { padding: 11px; cursor: pointer; background: #10b981; color: #06281e; border: none; font-weight: 600; border-radius: 11px; margin-top: 10px; width: 100%; font-family: inherit; font-size: 0.95rem; transition: filter 0.15s, transform 0.06s; }
+button:hover { filter: brightness(1.07); }
+button:active { transform: scale(0.985); }
+button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filter: none; }
+.btn-danger { background: #f43f5e; color: #fff; }
+.btn-pass { background: #3b82f6; color: #fff; }
+
 .card-area { display: flex; gap: 5px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
-.card { width: 50px; height: 75px; background: white; color: black; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem; flex-direction: column; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
-.card.selected { border: 2px solid #ffeb3b; transform: translateY(-10px); }
+.card { width: 50px; height: 75px; background: #fff; color: #0f172a; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; flex-direction: column; cursor: pointer; border: 2px solid transparent; transition: transform 0.15s, box-shadow 0.15s; }
+.card.selected { border-color: #f4c150; transform: translateY(-10px); box-shadow: 0 8px 16px rgba(0,0,0,0.45); }
 
 /* --- 4-COLOR DECK SUITS --- */
-.red { color: #f44336; } /* Hearts */
-.blue { color: #2196f3; } /* Diamonds */
-.green { color: #4caf50; } /* Clubs */
-.black { color: #333; } /* Spades */
+.red { color: #e11d48; } /* Hearts */
+.blue { color: #2563eb; } /* Diamonds */
+.green { color: #15803d; } /* Clubs */
+.black { color: #0f172a; } /* Spades */
 
-#table-area { min-height: 90px; border: 2px dashed rgba(255,255,255,0.3); padding: 10px; margin-bottom: 20px; border-radius: 10px; display: flex; justify-content: center; gap: 5px; flex-wrap: wrap; }
+#table-area { min-height: 90px; border: 1px solid rgba(255,255,255,0.08); background: #0e3a2f; padding: 12px; margin-bottom: 20px; border-radius: 14px; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
 #lobby-section, #game-section { display: none; }
-#game-log { text-align: left; background: #000; color: #0f0; padding: 10px; font-family: monospace; height: 80px; overflow-y: scroll; margin-bottom: 10px; font-size: 0.8rem; border-radius: 5px; }
+#game-log { text-align: left; background: #0b1220; color: #6ee7b7; padding: 10px; font-family: ui-monospace, monospace; height: 80px; overflow-y: scroll; margin-bottom: 10px; font-size: 0.8rem; border-radius: 9px; border: 1px solid rgba(255,255,255,0.06); }
 
 /* CSS Animation for the Win Banner */
 @keyframes popIn {
@@ -47,9 +60,9 @@ button:disabled { background: #888; color: #ccc; cursor: not-allowed; }
   left: 50%;
   transform: translate(-50%, -50%);
   font-size: 3rem;
-  font-weight: bold;
-  color: #ffeb3b;
-  text-shadow: 0px 0px 20px #000, 2px 2px 5px #000;
+  font-weight: 700;
+  color: #f4c150;
+  text-shadow: 0px 0px 24px #000, 2px 2px 6px #000;
   z-index: 10000;
   animation: popIn 0.5s ease-out;
   pointer-events: none;
@@ -58,51 +71,51 @@ button:disabled { background: #888; color: #ccc; cursor: not-allowed; }
 }
 
 /* Leaderboard, Scoreboard & History UI */
-.stats-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
-.stats-box { background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; margin-top: 15px; margin-bottom: 15px; border: 2px solid #ffeb3b; min-width: 150px; }
-.stats-box h3 { margin: 0 0 10px 0; color: #ffeb3b; text-transform: uppercase; font-size: 1rem;}
-.stats-box ol, .stats-box ul { text-align: left; margin: 0 auto; padding-left: 20px; display: inline-block; font-size: 1rem; font-weight: bold; }
+.stats-container { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+.stats-box { background: #18233b; padding: 15px; border-radius: 12px; margin-top: 15px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.08); min-width: 150px; }
+.stats-box h3 { margin: 0 0 10px 0; color: #f4c150; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px; }
+.stats-box ol, .stats-box ul { text-align: left; margin: 0 auto; padding-left: 20px; display: inline-block; font-size: 0.95rem; font-weight: 500; }
 .stats-box li { margin-bottom: 5px; }
 #leaderboard { display: none; }
 
 /* Turn Indicator and Timer */
-#turn-indicator { color: #ffeb3b; text-transform: uppercase; margin-bottom: 5px; }
-#timer-display { font-size: 1.5rem; font-weight: bold; color: #ff5252; margin-bottom: 15px; display: none; }
+#turn-indicator { color: #f4c150; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+#timer-display { font-size: 1.5rem; font-weight: 700; color: #fb7185; margin-bottom: 15px; display: none; }
 
 /* Opponent Card Tracker UI */
 #opponent-area { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
-.opponent-status { background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 0.9rem; border: 1px solid rgba(255,255,255,0.2); }
+.opponent-status { background: #18233b; padding: 8px 12px; border-radius: 20px; font-weight: 500; font-size: 0.9rem; border: 1px solid rgba(255,255,255,0.1); }
 
 /* --- CHAT BOX UI --- */
-#chat-container { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; margin-top: 10px; }
-#chat-messages { height: 100px; overflow-y: auto; text-align: left; font-size: 0.9rem; margin-bottom: 5px; color: #fff; padding: 5px; background: rgba(0,0,0,0.3); border-radius: 5px;}
+#chat-container { background: #18233b; border: 1px solid rgba(255,255,255,0.08); padding: 10px; border-radius: 12px; margin-top: 10px; }
+#chat-messages { height: 100px; overflow-y: auto; text-align: left; font-size: 0.9rem; margin-bottom: 5px; color: #e8eef9; padding: 6px; background: #0f1726; border-radius: 8px; }
 #chat-input-area { display: flex; gap: 5px; }
-#chat-input { flex-grow: 1; padding: 8px; border-radius: 5px; border: none; }
-#send-chat-btn { width: auto; margin-top: 0; padding: 8px 15px; }
+#chat-input { flex-grow: 1; padding: 9px; }
+#send-chat-btn { width: auto; margin-top: 0; padding: 9px 16px; }
 
 /* Diagnostic Box */
-#error-log { background: rgba(0,0,0,0.8); color: #0f0; padding: 10px; border-radius: 5px; margin-top: 15px; font-family: monospace; font-size: 0.8rem; text-align: left; height: 100px; overflow-y: auto; }
+#error-log { background: #0b1220; color: #6ee7b7; padding: 10px; border-radius: 9px; margin-top: 15px; font-family: ui-monospace, monospace; font-size: 0.8rem; text-align: left; height: 100px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.06); }
 
 /* Pause Overlay */
-#pause-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 20000; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-#pause-overlay .pause-title { font-size: 2.5rem; font-weight: bold; color: #ffeb3b; text-shadow: 2px 2px 5px #000; }
-#pause-overlay .pause-sub { font-size: 1.2rem; margin-top: 10px; color: #fff; }
-#pause-overlay .pause-resume-btn { margin-top: 25px; width: auto; padding: 15px 40px; font-size: 1.3rem; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+#pause-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(8,12,20,0.82); z-index: 20000; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+#pause-overlay .pause-title { font-size: 2.5rem; font-weight: 700; color: #f4c150; text-shadow: 2px 2px 6px #000; }
+#pause-overlay .pause-sub { font-size: 1.2rem; margin-top: 10px; color: #e8eef9; }
+#pause-overlay .pause-resume-btn { margin-top: 25px; width: auto; padding: 14px 40px; font-size: 1.2rem; background: #10b981; color: #06281e; border: none; border-radius: 11px; cursor: pointer; font-weight: 600; }
 
 /* --- MOBILE RESPONSIVE TWEAKS --- */
 @media (max-width: 600px) {
-  body { padding: 5px; }
-  .box { padding: 10px; margin: 5px auto; width: 98%; }
-  .card { width: 38px; height: 55px; font-size: 0.8rem; }
-  .card-area { gap: 3px; margin-top: 10px; }
-  button { padding: 15px; font-size: 1.1rem; margin-top: 8px; }
-  #send-chat-btn { padding: 10px; font-size: 1rem; }
+  body { padding: 8px; }
+  .box { padding: 12px; margin: 8px auto; width: 98%; }
+  .card { width: 40px; height: 58px; font-size: 0.85rem; }
+  .card-area { gap: 4px; margin-top: 12px; }
+  button { padding: 14px; font-size: 1.05rem; margin-top: 8px; }
+  #send-chat-btn { padding: 11px; font-size: 1rem; }
   h1, h2 { font-size: 1.5rem; margin: 10px 0; }
   #timer-display { font-size: 1.2rem; }
   .winner-banner { font-size: 1.8rem; }
 
   ul { list-style-type: none; padding: 0; }
-  li { background: rgba(255,255,255,0.1); margin: 5px 0; padding: 8px; border-radius: 4px; font-size: 1.2rem; }
+  li { background: rgba(255,255,255,0.06); margin: 5px 0; padding: 8px; border-radius: 6px; font-size: 1.1rem; }
 }
 </style>
 </head>
