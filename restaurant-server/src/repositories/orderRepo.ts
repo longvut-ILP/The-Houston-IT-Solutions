@@ -218,7 +218,7 @@ export async function insertOrderItems(
 
 export async function updateItemQuantity(db: Db, orderItemId: string, quantity: number): Promise<void> {
   await db.query(
-    `UPDATE order_items SET quantity = $2, line_total_cents = unit_price_cents * $2 WHERE id = $1`,
+    `UPDATE order_items SET quantity = $2::int, line_total_cents = unit_price_cents * $2::int WHERE id = $1`,
     [orderItemId, quantity]
   );
 }
@@ -239,9 +239,10 @@ export async function recomputeOrderTotals(
   );
   const subtotalCents = Number(rows[0].sub);
   const taxCents = Math.round((subtotalCents * taxBps) / 10000);
+  const totalCents = subtotalCents + taxCents;
   await db.query(
-    `UPDATE orders SET subtotal_cents = $2, tax_cents = $3, total_cents = $2 + $3 WHERE id = $1`,
-    [orderId, subtotalCents, taxCents]
+    `UPDATE orders SET subtotal_cents = $2, tax_cents = $3, total_cents = $4 WHERE id = $1`,
+    [orderId, subtotalCents, taxCents, totalCents]
   );
   return { subtotalCents, taxCents };
 }
