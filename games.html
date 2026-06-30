@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Arcade — The Houston IT Solutions LLC</title>
+  <meta name="description" content="Mini games by Houston IT Solutions. Play Tiến Lên (Vietnamese 13) online with friends — more games coming soon."/>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%2300d4ff'>🎮</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --navy: #0a0f1e; --deep: #0d1630; --blue: #0057ff; --cyan: #00d4ff;
+      --silver: #c8d6e8; --muted: #6b7fa3; --white: #f0f4ff;
+      --card-bg: rgba(255,255,255,0.04); --border: rgba(0,212,255,0.15);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--navy); color: var(--white); font-family: 'DM Sans', sans-serif; font-weight: 300; overflow-x: hidden; min-height: 100vh; }
+    body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(0,87,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,87,255,0.04) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; z-index: 0; }
+    a { text-decoration: none; color: inherit; }
+
+    nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 18px 6vw; background: rgba(10,15,30,0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .logo .logo-main { font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; letter-spacing: 1px; }
+    .logo .logo-main span { color: var(--cyan); }
+    .logo .logo-sub { font-size: 0.65rem; letter-spacing: 3px; color: var(--muted); text-transform: uppercase; }
+    .nav-links { display: flex; align-items: center; gap: 28px; list-style: none; }
+    .nav-links a { font-size: 0.9rem; color: var(--silver); transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--cyan); }
+    .nav-cta { padding: 9px 18px; border: 1px solid var(--cyan); border-radius: 6px; color: var(--cyan) !important; font-weight: 500; transition: all 0.2s; }
+    .nav-cta:hover { background: var(--cyan); color: var(--navy) !important; }
+
+    .hero { position: relative; z-index: 1; text-align: center; padding: 90px 6vw 50px; }
+    .eyebrow { font-size: 0.8rem; letter-spacing: 4px; text-transform: uppercase; color: var(--cyan); margin-bottom: 18px; }
+    .hero h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(2.8rem, 8vw, 5rem); line-height: 1; letter-spacing: 1px; }
+    .hero h1 span { color: var(--cyan); }
+    .hero p { max-width: 640px; margin: 22px auto 0; color: var(--silver); font-size: 1.05rem; line-height: 1.7; }
+
+    .grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; max-width: 1000px; margin: 10px auto 80px; padding: 0 6vw; }
+    .game-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 28px; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; }
+    .game-card.live:hover { transform: translateY(-6px); border-color: var(--cyan); box-shadow: 0 18px 50px rgba(0,212,255,0.12); }
+    .game-icon { font-size: 3rem; line-height: 1; margin-bottom: 14px; }
+    .tag { align-self: flex-start; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; padding: 4px 10px; border-radius: 20px; margin-bottom: 14px; font-weight: 600; }
+    .tag-live { background: rgba(0,212,255,0.12); color: var(--cyan); border: 1px solid var(--border); }
+    .tag-soon { background: rgba(107,127,163,0.12); color: var(--muted); border: 1px solid rgba(107,127,163,0.25); }
+    .game-card h3 { font-family: 'Bebas Neue', sans-serif; font-size: 1.7rem; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .game-card p { color: var(--silver); font-size: 0.95rem; line-height: 1.6; flex-grow: 1; }
+    .play-btn { margin-top: 20px; align-self: flex-start; padding: 11px 26px; background: var(--cyan); color: var(--navy); border-radius: 8px; font-weight: 700; letter-spacing: 0.5px; transition: background 0.2s; }
+    .play-btn:hover { background: var(--white); }
+    .soon-label { margin-top: 20px; align-self: flex-start; color: var(--muted); font-size: 0.85rem; font-style: italic; }
+    .game-card.soon { opacity: 0.7; }
+
+    footer { position: relative; z-index: 1; border-top: 1px solid var(--border); padding: 36px 6vw; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; color: var(--muted); font-size: 0.85rem; }
+    .footer-links { display: flex; gap: 22px; flex-wrap: wrap; }
+    .footer-links a:hover { color: var(--cyan); }
+
+    @media (max-width: 720px) { .nav-links { display: none; } .hero { padding-top: 60px; } }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html" class="logo">
+      <div class="logo-main">The Houston <span>IT</span></div>
+      <div class="logo-sub">Solutions LLC</div>
+    </a>
+    <ul class="nav-links">
+      <li><a href="index.html#services">Services</a></li>
+      <li><a href="pos-solutions.html">POS Systems</a></li>
+      <li><a href="games.html" class="active">Arcade</a></li>
+      <li><a href="index.html#contact" class="nav-cta">Get a Quote</a></li>
+    </ul>
+  </nav>
+
+  <section class="hero">
+    <div class="eyebrow">Houston IT Solutions — Arcade</div>
+    <h1>Mini <span>Games</span></h1>
+    <p>A little corner for games we've built. Grab some friends, share a room PIN, and play right in the browser — nothing to install. More on the way.</p>
+  </section>
+
+  <section class="grid">
+    <div class="game-card live">
+      <div class="game-icon">🃏</div>
+      <span class="tag tag-live">Playable now</span>
+      <h3>Tiến Lên (Vietnamese 13)</h3>
+      <p>The classic shedding card game for 2–4 players. Host a room, share the 4-digit PIN, and race to empty your hand. Singles, pairs, runs, bombs, live chat, scoreboard, and a turn timer.</p>
+      <a href="games/thirteen.html" class="play-btn">▶ Play now</a>
+    </div>
+
+    <div class="game-card soon">
+      <div class="game-icon">🎲</div>
+      <span class="tag tag-soon">Coming soon</span>
+      <h3>More games</h3>
+      <p>This arcade is just getting started — more browser games will land here. Got one you'd like to see? Let us know.</p>
+      <span class="soon-label">In the works…</span>
+    </div>
+  </section>
+
+  <footer>
+    <a href="index.html" class="logo">
+      <div class="logo-main">The Houston <span>IT</span></div>
+      <div class="logo-sub">Solutions LLC &copy; 2018</div>
+    </a>
+    <div class="footer-links">
+      <a href="index.html#services">Services</a>
+      <a href="pos-solutions.html">POS Systems</a>
+      <a href="games.html">Arcade</a>
+      <a href="index.html#contact">Contact</a>
+    </div>
+  </footer>
+</body>
+</html>

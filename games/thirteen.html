@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tiến Lên Multiplayer</title>
+
+<!-- Favicon using an inline SVG of a playing card emoji -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🃏</text></svg>">
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<!-- External Confetti Library for the visual celebration -->
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<!-- SortableJS: lets players drag to rearrange their hand (works on desktop and touch) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+
+<style>
+body { background: #1b5e20; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 10px; }
+.box { background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 10px auto; width: 100%; max-width: 450px; box-sizing: border-box; }
+button { padding: 10px; cursor: pointer; background: #ffeb3b; color: #333; border: none; font-weight: bold; border-radius: 5px; margin-top: 10px; width: 100%; transition: background 0.2s; }
+button:disabled { background: #888; color: #ccc; cursor: not-allowed; }
+.btn-danger { background: #f44336; color: white; }
+.btn-pass { background: #2196f3; color: white; }
+.card-area { display: flex; gap: 5px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+.card { width: 50px; height: 75px; background: white; color: black; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem; flex-direction: column; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
+.card.selected { border: 2px solid #ffeb3b; transform: translateY(-10px); }
+
+/* --- 4-COLOR DECK SUITS --- */
+.red { color: #f44336; } /* Hearts */
+.blue { color: #2196f3; } /* Diamonds */
+.green { color: #4caf50; } /* Clubs */
+.black { color: #333; } /* Spades */
+
+#table-area { min-height: 90px; border: 2px dashed rgba(255,255,255,0.3); padding: 10px; margin-bottom: 20px; border-radius: 10px; display: flex; justify-content: center; gap: 5px; flex-wrap: wrap; }
+#lobby-section, #game-section { display: none; }
+#game-log { text-align: left; background: #000; color: #0f0; padding: 10px; font-family: monospace; height: 80px; overflow-y: scroll; margin-bottom: 10px; font-size: 0.8rem; border-radius: 5px; }
+
+/* CSS Animation for the Win Banner */
+@keyframes popIn {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  80% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+.winner-banner {
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 3rem;
+  font-weight: bold;
+  color: #ffeb3b;
+  text-shadow: 0px 0px 20px #000, 2px 2px 5px #000;
+  z-index: 10000;
+  animation: popIn 0.5s ease-out;
+  pointer-events: none;
+  text-align: center;
+  width: 100%;
+}
+
+/* Leaderboard, Scoreboard & History UI */
+.stats-container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+.stats-box { background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; margin-top: 15px; margin-bottom: 15px; border: 2px solid #ffeb3b; min-width: 150px; }
+.stats-box h3 { margin: 0 0 10px 0; color: #ffeb3b; text-transform: uppercase; font-size: 1rem;}
+.stats-box ol, .stats-box ul { text-align: left; margin: 0 auto; padding-left: 20px; display: inline-block; font-size: 1rem; font-weight: bold; }
+.stats-box li { margin-bottom: 5px; }
+#leaderboard { display: none; }
+
+/* Turn Indicator and Timer */
+#turn-indicator { color: #ffeb3b; text-transform: uppercase; margin-bottom: 5px; }
+#timer-display { font-size: 1.5rem; font-weight: bold; color: #ff5252; margin-bottom: 15px; display: none; }
+
+/* Opponent Card Tracker UI */
+#opponent-area { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+.opponent-status { background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 0.9rem; border: 1px solid rgba(255,255,255,0.2); }
+
+/* --- CHAT BOX UI --- */
+#chat-container { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; margin-top: 10px; }
+#chat-messages { height: 100px; overflow-y: auto; text-align: left; font-size: 0.9rem; margin-bottom: 5px; color: #fff; padding: 5px; background: rgba(0,0,0,0.3); border-radius: 5px;}
+#chat-input-area { display: flex; gap: 5px; }
+#chat-input { flex-grow: 1; padding: 8px; border-radius: 5px; border: none; }
+#send-chat-btn { width: auto; margin-top: 0; padding: 8px 15px; }
+
+/* Diagnostic Box */
+#error-log { background: rgba(0,0,0,0.8); color: #0f0; padding: 10px; border-radius: 5px; margin-top: 15px; font-family: monospace; font-size: 0.8rem; text-align: left; height: 100px; overflow-y: auto; }
+
+/* Pause Overlay */
+#pause-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 20000; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+#pause-overlay .pause-title { font-size: 2.5rem; font-weight: bold; color: #ffeb3b; text-shadow: 2px 2px 5px #000; }
+#pause-overlay .pause-sub { font-size: 1.2rem; margin-top: 10px; color: #fff; }
+#pause-overlay .pause-resume-btn { margin-top: 25px; width: auto; padding: 15px 40px; font-size: 1.3rem; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+/* --- MOBILE RESPONSIVE TWEAKS --- */
+@media (max-width: 600px) {
+  body { padding: 5px; }
+  .box { padding: 10px; margin: 5px auto; width: 98%; }
+  .card { width: 38px; height: 55px; font-size: 0.8rem; }
+  .card-area { gap: 3px; margin-top: 10px; }
+  button { padding: 15px; font-size: 1.1rem; margin-top: 8px; }
+  #send-chat-btn { padding: 10px; font-size: 1rem; }
+  h1, h2 { font-size: 1.5rem; margin: 10px 0; }
+  #timer-display { font-size: 1.2rem; }
+  .winner-banner { font-size: 1.8rem; }
+
+  ul { list-style-type: none; padding: 0; }
+  li { background: rgba(255,255,255,0.1); margin: 5px 0; padding: 8px; border-radius: 4px; font-size: 1.2rem; }
+}
+</style>
+</head>
+<body>
+<h1>Tiến Lên</h1>
+<p style="margin:-4px 0 10px;"><a href="../games.html" style="color:#ffeb3b; font-size:0.9rem;">← Back to Arcade</a></p>
+<div id="setup-section" class="box">
+<div id="host-section">
+<h3>Host a Game</h3>
+<input type="text" id="host-name" placeholder="Your Name (e.g., Alice)" style="width:90%; padding:8px; margin-bottom:5px;">
+<button id="create-btn">Create Room</button>
+<p style="margin-bottom: 5px;">Status: <span id="room-id-display">Waiting...</span></p>
+</div>
+<hr style="border-color: rgba(255,255,255,0.2); margin: 20px 0;">
+<div id="join-section">
+<h3>Join a Friend</h3>
+<input type="text" id="join-name" placeholder="Your Name (e.g., Bob)" style="width:90%; padding:8px; margin-bottom:5px;">
+<input type="text" id="join-id" placeholder="Enter 4-Digit Room PIN" maxlength="4" style="width:90%; padding:8px;">
+<button id="join-btn">Join Room</button>
+</div>
+<div id="error-log">Diagnostics standing by...</div>
+</div>
+<div id="lobby-section" class="box" style="display: none;">
+<h2>Waiting Lobby</h2>
+<div style="background: #333; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+<p style="margin: 0 0 5px 0; font-size: 0.9em; color: #ccc;">Tell your friends to enter this PIN:</p>
+<span id="lobby-room-id" style="font-size: 2rem; font-weight: bold; letter-spacing: 5px; color: #ffeb3b;">...</span>
+</div>
+<p>Players Connected: <span id="player-count">1</span>/4</p>
+<ul id="player-list"></ul>
+<button id="start-game-btn" style="display: none;">Start Game / Next Round</button>
+</div>
+<div id="game-section" class="box" style="max-width: 800px; display: none;">
+<h2>Game Board</h2>
+
+<!-- Turn Indicator & Timer -->
+<h3 id="turn-indicator" style="display: none;">Waiting for game to start...</h3>
+<div id="timer-display">⏳ 30s</div>
+
+<!-- Opponent Card Tracker -->
+<div id="opponent-area"></div>
+
+<!-- Scoreboard, Leaderboard & History -->
+<div class="stats-container">
+    <div id="scoreboard" class="stats-box">
+      <h3>📊 Total Scores 📊</h3>
+      <ul id="scoreboard-list" style="list-style:none; padding:0;"></ul>
+    </div>
+    <div id="leaderboard" class="stats-box">
+      <h3>🏆 Round Results 🏆</h3>
+      <ol id="leaderboard-list"></ol>
+    </div>
+    <div id="round-history-box" class="stats-box">
+      <h3>📜 Previous Winners 📜</h3>
+      <ul id="history-list" style="list-style:none; padding:0;"></ul>
+    </div>
+</div>
+
+<div id="table-area"></div>
+<div id="game-log"></div>
+
+<!-- Chat Box -->
+<div id="chat-container">
+    <div id="chat-messages"></div>
+    <div id="chat-input-area">
+        <input type="text" id="chat-input" placeholder="Type a message...">
+        <button id="send-chat-btn">Send</button>
+    </div>
+</div>
+
+<!-- Hand organize tools: drag cards to rearrange, or quick-sort -->
+<div id="hand-tools" style="margin-top:15px;">
+  <span style="font-size:0.85rem; color:#ccc;">Tip: drag your cards to rearrange them.</span><br>
+  <button id="sort-rank-btn" style="width:auto; padding:6px 14px; margin:6px 4px 0;">↕ Sort by Rank</button>
+  <button id="sort-suit-btn" style="width:auto; padding:6px 14px; margin:6px 4px 0;">↕ Sort by Suit</button>
+</div>
+<div class="card-area" id="my-hand"></div>
+<button id="play-btn" disabled>Play Selected Cards</button>
+<button id="pass-btn" class="btn-pass" disabled>Pass</button>
+<button id="revert-btn" class="btn-danger" disabled>Revert Last Play</button>
+<button id="pause-btn" style="background:#9c27b0; color:white;">⏸ Pause Game</button>
+
+<!-- Host Control to Deal Next Round -->
+<button id="next-round-btn" style="display:none; background:#4caf50; color:white; margin-top: 20px;">Deal Next Round</button>
+</div>
+<script>
+// DOM Event Listeners
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('create-btn').addEventListener('click', startHost);
+    document.getElementById('join-btn').addEventListener('click', joinRoom);
+    document.getElementById('start-game-btn').addEventListener('click', startGame);
+    document.getElementById('next-round-btn').addEventListener('click', startGame);
+    document.getElementById('play-btn').addEventListener('click', playSelectedCards);
+    document.getElementById('pass-btn').addEventListener('click', passTurn);
+    document.getElementById('revert-btn').addEventListener('click', revertLastPlay);
+    document.getElementById('pause-btn').addEventListener('click', togglePause);
+    document.getElementById('sort-rank-btn').addEventListener('click', sortHandByRank);
+    document.getElementById('sort-suit-btn').addEventListener('click', sortHandBySuit);
+
+    // Chat Event Listeners
+    document.getElementById('send-chat-btn').addEventListener('click', sendChatMessage);
+    document.getElementById('chat-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') sendChatMessage();
+    });
+});
+
+let peer, hostConnection, myName;
+let clientConnections = [], players = [];
+let currentHand = [];
+let lastPlayedCards = [];
+let finishedPlayers = [];
+let isHost = false;
+
+// Tracker Variables
+let cardCounts = {};
+let playerScores = {};
+let roundHistory = [];
+let gameLowestCard = null;
+
+// Rules & Turn Variables
+let currentTurnIndex = 0;
+let turnTimerInterval;
+let timeRemaining = 30;
+const TURN_LIMIT = 30;
+
+let currentTableCards = [];
+let consecutivePasses = 0;
+let trickLeader = null;
+let passedPlayers = []; // players who passed in the current trick (skipped until it clears)
+let isPaused = false; // when true, the turn timer is frozen and actions are disabled
+
+// --- SOUND EFFECTS ---
+const playSound = new Audio('https://actions.google.com/sounds/v1/cartoon/pop.ogg');
+const passSound = new Audio('https://actions.google.com/sounds/v1/cartoon/slip.ogg');
+const winSound = new Audio('https://actions.google.com/sounds/v1/crowds/female_cheer.ogg');
+const chatSound = new Audio('https://actions.google.com/sounds/v1/water/water_drop.ogg');
+
+const rankOrder = { '3': 0, '4': 1, '5': 2, '6': 3, '7': 4, '8': 5, '9': 6, '10': 7, 'J': 8, 'Q': 9, 'K': 10, 'A': 11, '2': 12 };
+const suitOrder = { '♠': 0, '♣': 1, '♦': 2, '♥': 3 };
+
+function debugLog(msg) {
+    console.log(msg);
+    const errorLog = document.getElementById('error-log');
+    if (errorLog.innerText === "Diagnostics standing by...") errorLog.innerText = "";
+    errorLog.innerText += "👉 " + msg + "\n";
+    errorLog.scrollTop = errorLog.scrollHeight;
+}
+
+function sortCards(cards) {
+    return cards.sort((a, b) => rankOrder[a.label] - rankOrder[b.label] || suitOrder[a.suit] - suitOrder[b.suit]);
+}
+
+// --- NEW RULE VALIDATION LOGIC ---
+function getPlayType(cards) {
+    if (!cards || cards.length === 0) return null;
+    if (cards.length === 1) return 'single';
+
+    const ranks = cards.map(c => rankOrder[c.label]);
+
+    // Check for Pair, Triplet, Quartet
+    const allSame = ranks.every(r => r === ranks[0]);
+    if (allSame) {
+        if (cards.length === 2) return 'pair';
+        if (cards.length === 3) return 'triplet';
+        if (cards.length === 4) return 'quartet';
+    }
+
+    // Sequence Detection
+    let isSequence = true;
+    for (let i = 1; i < ranks.length; i++) {
+        if (ranks[i] !== ranks[i - 1] + 1) isSequence = false;
+    }
+    if (ranks.includes(rankOrder['2'])) isSequence = false;
+    if (isSequence && cards.length >= 3) return 'sequence';
+
+    // Double Sequence Detection
+    if (cards.length >= 6 && cards.length % 2 === 0) {
+        let isDoubleSeq = true;
+        let pairRanks = [];
+        for (let i = 0; i < cards.length; i += 2) {
+            if (ranks[i] !== ranks[i+1]) { isDoubleSeq = false; break; }
+            pairRanks.push(ranks[i]);
+        }
+        if (isDoubleSeq) {
+            for (let i = 1; i < pairRanks.length; i++) {
+                if (pairRanks[i] !== pairRanks[i - 1] + 1) { isDoubleSeq = false; break; }
+            }
+        }
+        if (pairRanks.includes(rankOrder['2'])) isDoubleSeq = false;
+        if (isDoubleSeq) return 'double_sequence';
+    }
+
+    return null;
+}
+
+function isValidPlay(selectedCards, tableCards) {
+    const selectedType = getPlayType(selectedCards);
+    if (!selectedType) return false;
+
+    // If table is empty, any valid shape is allowed
+    if (!tableCards || tableCards.length === 0) return true;
+
+    const tableType = getPlayType(tableCards);
+    const highestSelected = selectedCards[selectedCards.length - 1];
+    const highestTable = tableCards[tableCards.length - 1];
+
+    // --- BOMB LOGIC ---
+    if (tableType === 'single' && highestTable.label === '2') {
+        if (selectedType === 'quartet') return true;
+        if (selectedType === 'double_sequence' && selectedCards.length >= 6) return true;
+    }
+    if (tableType === 'pair' && highestTable.label === '2') {
+        if (selectedType === 'quartet') return true;
+        if (selectedType === 'double_sequence' && selectedCards.length >= 8) return true;
+    }
+    if (tableType === 'triplet' && highestTable.label === '2') {
+        if (selectedType === 'double_sequence' && selectedCards.length >= 10) return true;
+    }
+
+    // --- STANDARD MATCHING LOGIC ---
+    if (selectedType !== tableType || selectedCards.length !== tableCards.length) {
+        return false;
+    }
+
+    const rankDiff = rankOrder[highestSelected.label] - rankOrder[highestTable.label];
+    if (rankDiff > 0) return true;
+    if (rankDiff === 0 && suitOrder[highestSelected.suit] > suitOrder[highestTable.suit]) return true;
+
+    return false;
+}
+
+// --- CORE UI HELPERS ---
+function createCardElement(card, isSelectable = false) {
+    const div = document.createElement('div');
+    div.className = `card ${card.color}`;
+    div.innerHTML = `${card.label}<br>${card.suit}`;
+    if (isSelectable) div.onclick = () => div.classList.toggle('selected');
+    return div;
+}
+
+function renderTable(cards) {
+    const container = document.getElementById('table-area');
+    container.innerHTML = '';
+    cards.forEach(c => container.appendChild(createCardElement(c, false)));
+}
+
+// --- HOST/CLIENT SETUP ---
+function startHost() {
+    myName = document.getElementById('host-name').value || "Host";
+    isHost = true;
+    const display = document.getElementById('room-id-display');
+    const errorLog = document.getElementById('error-log');
+    display.innerText = "Finding empty room...";
+    errorLog.innerText = "";
+
+    debugLog("Host: Button clicked.");
+
+    function attemptHostConnection() {
+        const randomPIN = Math.floor(1000 + Math.random() * 9000).toString();
+        debugLog("Host: Attempting to claim PIN " + randomPIN + "...");
+
+        peer = new Peer(randomPIN, {
+            debug: 3,
+            config: {
+                'iceServers': [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' } ]
+            }
+        });
+
+        peer.on('open', (id) => {
+            debugLog("Host: SUCCESS! Claimed Room PIN: " + id);
+            display.innerText = "Ready!";
+            document.getElementById('lobby-room-id').innerText = id;
+            document.getElementById('create-btn').disabled = true;
+
+            document.getElementById('setup-section').style.display = "none";
+            document.getElementById('lobby-section').style.display = "block";
+            document.getElementById('start-game-btn').style.display = "inline-block";
+            players.push(myName);
+            updateLobbyUI();
+        });
+
+        peer.on('error', (err) => {
+            if(err.type === 'unavailable-id') {
+                debugLog("Host: PIN " + randomPIN + " is taken! Retrying...");
+                peer.destroy();
+                attemptHostConnection();
+            } else {
+                debugLog("❌ HOST ERROR: " + err.type);
+                display.innerText = "Failed";
+            }
+        });
+
+        peer.on('connection', (conn) => {
+            clientConnections.push(conn);
+            conn.on('open', () => debugLog("Host: New client connected!"));
+            conn.on('data', (data) => handleIncomingData(data));
+        });
+    }
+    attemptHostConnection();
+}
+
+function joinRoom() {
+    myName = document.getElementById('join-name').value || "Player";
+    const hostId = document.getElementById('join-id').value.trim();
+
+    if(!hostId || hostId.length !== 4) return alert("Please enter a 4-digit Room PIN");
+    document.getElementById('error-log').innerText = "";
+    debugLog("Client: Attempting to join PIN: " + hostId);
+
+    peer = new Peer(null, {
+        debug: 3,
+        config: {
+            'iceServers': [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' } ]
+        }
+    });
+
+    peer.on('open', () => {
+        debugLog("Client: Connected to server. Pinging Room " + hostId + "...");
+        hostConnection = peer.connect(hostId);
+        hostConnection.on('open', () => {
+            debugLog("Client: Successfully connected to Host!");
+            document.getElementById('setup-section').style.display = "none";
+            document.getElementById('lobby-section').style.display = "block";
+            hostConnection.send({ type: 'JOIN_LOBBY', name: myName });
+        });
+        hostConnection.on('data', (data) => handleIncomingData(data));
+    });
+
+    peer.on('error', (err) => {
+        debugLog("❌ JOIN ERROR: " + err.type);
+        alert("Connection failed: " + err.type);
+    });
+}
+
+// --- CENTRAL MESSAGE HANDLING ---
+function handleIncomingData(data) {
+    if (data.type === 'JOIN_LOBBY') {
+        players.push(data.name);
+        updateLobbyUI();
+        broadcastToClients({ type: 'UPDATE_LOBBY', players: players });
+    }
+    if (data.type === 'UPDATE_LOBBY') {
+        players = data.players;
+        updateLobbyUI();
+    }
+
+    if (data.type === 'START_GAME') {
+        gameLowestCard = data.lowestCard;
+        finishedPlayers = [];
+        currentTableCards = [];
+        consecutivePasses = 0;
+        trickLeader = null;
+        passedPlayers = [];
+        document.getElementById('next-round-btn').style.display = 'none';
+
+        players.forEach(p => {
+            cardCounts[p] = 13;
+            if(playerScores[p] === undefined) playerScores[p] = 0;
+        });
+
+        document.getElementById('lobby-section').style.display = "none";
+        document.getElementById('game-section').style.display = "block";
+
+        updateOpponentUI();
+        updateScoreboardUI();
+        updateLeaderboardUI();
+        updateRoundHistoryUI();
+
+        document.getElementById('table-area').innerHTML = '';
+    }
+
+    if (data.type === 'DEAL') {
+        currentHand = data.cards;
+        renderHand(currentHand);
+    }
+
+    if (data.type === 'TURN_UPDATE') {
+        currentTurnIndex = data.turnIndex;
+        updateTurnUI();
+        startTurnTimer();
+    }
+
+    if (data.type === 'CHAT') {
+        appendChatMessage(data.name, data.message);
+        if (isHost) broadcastToClients(data);
+    }
+
+    if (data.type === 'PLAY_CARDS') {
+        renderTable(data.cards);
+        playSound.currentTime = 0;
+        playSound.play().catch(err => console.log("Audio blocked:", err));
+
+        currentTableCards = data.cards;
+        consecutivePasses = 0;
+        trickLeader = data.name;
+
+        cardCounts[data.name] -= data.cards.length;
+        updateOpponentUI();
+
+        logGame(`${data.name} played.`);
+
+        // Finished logic
+        if (cardCounts[data.name] === 0 && !finishedPlayers.includes(data.name)) {
+            finishedPlayers.push(data.name);
+
+            const place = finishedPlayers.length;
+            const pointsEarned = place === 1 ? 3 : place === 2 ? 2 : place === 3 ? 1 : 0;
+            playerScores[data.name] += pointsEarned;
+
+            if (place === 1) {
+                roundHistory.push(data.name);
+                updateRoundHistoryUI();
+            }
+
+            updateScoreboardUI();
+            updateLeaderboardUI();
+
+            const placeString = place === 1 ? "1st" : place === 2 ? "2nd" : place === 3 ? "3rd" : "4th";
+            winSound.currentTime = 0;
+            winSound.play().catch(err => console.log("Audio blocked:", err));
+            triggerWinVisuals(data.name, place);
+            logGame(`>>> ${data.name} HAS FINISHED IN ${placeString.toUpperCase()} PLACE! (+${pointsEarned} pts) <<<`);
+
+            if (finishedPlayers.length >= players.length - 1) {
+                clearInterval(turnTimerInterval);
+                document.getElementById('timer-display').style.display = 'none';
+                document.getElementById('turn-indicator').innerText = "Game Over!";
+                if (isHost) document.getElementById('next-round-btn').style.display = 'inline-block';
+            }
+        }
+
+        if (isHost) {
+            broadcastToClients(data);
+            if(finishedPlayers.length < players.length - 1) {
+                advanceTurn();
+            }
+        }
+    }
+
+    if (data.type === 'UNDO_PLAY') {
+        document.getElementById('table-area').innerHTML = '';
+        logGame(`${data.name} reverted their last move.`);
+        currentTableCards = [];
+        consecutivePasses = 0;
+        trickLeader = null;
+        passedPlayers = [];
+
+        cardCounts[data.name] += data.count;
+        updateOpponentUI();
+
+        if (isHost) {
+            broadcastToClients(data);
+            revertTurn(data.name);
+        }
+    }
+
+    if (data.type === 'PASS') {
+        passSound.currentTime = 0;
+        passSound.play().catch(err => console.log("Audio blocked:", err));
+        logGame(`${data.name} passed.`);
+
+        // Once a player passes, they are out for the rest of this trick (round)
+        if (!passedPlayers.includes(data.name)) passedPlayers.push(data.name);
+        consecutivePasses++;
+
+        let activePlayers = players.filter(p => !finishedPlayers.includes(p));
+        let stillInPlay = activePlayers.filter(p => !passedPlayers.includes(p));
+
+        // Trick ends when only one active player has NOT passed — they lead the new round
+        if (stillInPlay.length <= 1 && activePlayers.length > 1) {
+            currentTableCards = [];
+            document.getElementById('table-area').innerHTML = '';
+            logGame("Round over — table cleared. The remaining player leads a new round.");
+
+            consecutivePasses = 0;
+            passedPlayers = [];
+
+            if (isHost) {
+                broadcastToClients(data);
+                // The single remaining player (last to play) starts the new round
+                let nextLeader = stillInPlay.length === 1 ? stillInPlay[0] : trickLeader;
+                let leaderIndex = players.indexOf(nextLeader);
+                if (leaderIndex === -1 || finishedPlayers.includes(nextLeader)) {
+                    leaderIndex = (currentTurnIndex + 1) % players.length;
+                    let guard = 0;
+                    while (finishedPlayers.includes(players[leaderIndex]) && guard < players.length) {
+                        leaderIndex = (leaderIndex + 1) % players.length;
+                        guard++;
+                    }
+                }
+                currentTurnIndex = leaderIndex;
+                const turnMsg = { type: 'TURN_UPDATE', turnIndex: currentTurnIndex };
+                broadcastToClients(turnMsg);
+                handleIncomingData(turnMsg);
+            }
+            trickLeader = null;
+            return;
+        }
+
+        if (isHost) {
+            broadcastToClients(data);
+            advanceTurn();
+        }
+    }
+
+    if (data.type === 'SYNC_SCORES') {
+        playerScores = data.scores;
+        roundHistory = data.history || [];
+        updateScoreboardUI();
+        updateRoundHistoryUI();
+    }
+
+    if (data.type === 'PAUSE') {
+        applyPause(data.name);
+        if (isHost) broadcastToClients(data);
+    }
+
+    if (data.type === 'RESUME') {
+        applyResume(data.name);
+        if (isHost) broadcastToClients(data);
+    }
+}
+
+// --- ACTIONS ---
+function playSelectedCards() {
+    const selected = currentHand.filter((_, i) => document.querySelectorAll('#my-hand .card')[i].classList.contains('selected'));
+    if (selected.length === 0) return alert("Select at least one card!");
+
+    const sortedSelected = sortCards([...selected]);
+
+    if (roundHistory.length === 0 && currentTableCards.length === 0 && cardCounts[myName] === 13) {
+        if (gameLowestCard) {
+            const hasLowest = sortedSelected.some(c => c.label === gameLowestCard.label && c.suit === gameLowestCard.suit);
+            if (!hasLowest) {
+                return alert(`Official Rule: You must include the lowest dealt card (${gameLowestCard.label}${gameLowestCard.suit}) in your very first play of the game!`);
+            }
+        } else {
+            const has3Spades = sortedSelected.some(c => c.label === '3' && c.suit === '♠');
+            if (!has3Spades) {
+                return alert("Official Rule: You must include your lowest card in the very first play of the game!");
+            }
+        }
+    }
+
+    if (!isValidPlay(sortedSelected, currentTableCards)) {
+        return alert("Invalid play! You must play a valid combination that beats the current table cards.");
+    }
+
+    lastPlayedCards = [...selected];
+    currentHand = currentHand.filter(card => !selected.includes(card));
+    renderHand(currentHand);
+
+    document.getElementById('revert-btn').disabled = false;
+    document.getElementById('play-btn').disabled = true;
+    document.getElementById('pass-btn').disabled = true;
+
+    const msg = { type: 'PLAY_CARDS', name: myName, cards: sortedSelected };
+
+    if (isHost) {
+        handleIncomingData(msg);
+    } else {
+        hostConnection.send(msg);
+    }
+}
+
+function revertLastPlay() {
+    if (lastPlayedCards.length === 0) return;
+    const countToRevert = lastPlayedCards.length;
+
+    currentHand.push(...lastPlayedCards);
+    currentHand = sortCards(currentHand);
+    renderHand(currentHand);
+    document.getElementById('revert-btn').disabled = true;
+    lastPlayedCards = [];
+
+    const msg = { type: 'UNDO_PLAY', name: myName, count: countToRevert };
+    if (isHost) {
+        handleIncomingData(msg);
+    } else {
+        hostConnection.send(msg);
+    }
+}
+
+function passTurn() {
+    document.getElementById('play-btn').disabled = true;
+    document.getElementById('pass-btn').disabled = true;
+
+    const msg = { type: 'PASS', name: myName };
+    if (isHost) {
+        handleIncomingData(msg);
+    } else {
+        hostConnection.send(msg);
+    }
+}
+
+// --- PAUSE / RESUME (any player can pause when someone is busy) ---
+function togglePause() {
+    const msg = { type: isPaused ? 'RESUME' : 'PAUSE', name: myName };
+    if (isHost) {
+        handleIncomingData(msg);
+    } else if (hostConnection) {
+        hostConnection.send(msg);
+    }
+}
+
+function applyPause(name) {
+    isPaused = true;
+    clearInterval(turnTimerInterval); // freeze the turn countdown for everyone
+    document.getElementById('play-btn').disabled = true;
+    document.getElementById('pass-btn').disabled = true;
+    document.getElementById('revert-btn').disabled = true;
+    const timerDisplay = document.getElementById('timer-display');
+    if (timerDisplay) timerDisplay.innerText = '⏸ Paused';
+    const btn = document.getElementById('pause-btn');
+    if (btn) btn.innerText = '▶ Resume Game';
+    showPauseOverlay(name);
+    logGame(`⏸ ${name} paused the game.`);
+}
+
+function applyResume(name) {
+    isPaused = false;
+    hidePauseOverlay();
+    const btn = document.getElementById('pause-btn');
+    if (btn) btn.innerText = '⏸ Pause Game';
+    logGame(`▶ ${name} resumed the game.`);
+    updateTurnUI();   // restore the correct enabled/disabled state for the current turn
+    startTurnTimer(); // restart the countdown for whoever's turn it is
+}
+
+function showPauseOverlay(name) {
+    let overlay = document.getElementById('pause-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'pause-overlay';
+        document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `<div class="pause-title">⏸ Game Paused</div>` +
+        `<div class="pause-sub">Paused by ${name}. Click below when everyone's ready.</div>` +
+        `<button class="pause-resume-btn" onclick="togglePause()">▶ Resume Game</button>`;
+    overlay.style.display = 'flex';
+}
+
+function hidePauseOverlay() {
+    const overlay = document.getElementById('pause-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+// --- CHAT LOGIC ---
+function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const msgText = input.value.trim();
+    if (!msgText) return;
+
+    const chatData = { type: 'CHAT', name: myName, message: msgText };
+
+    if (isHost) {
+        appendChatMessage(myName, msgText);
+        broadcastToClients(chatData);
+    } else {
+        hostConnection.send(chatData);
+    }
+    input.value = '';
+}
+
+function appendChatMessage(sender, message) {
+    const chatLog = document.getElementById('chat-messages');
+    chatLog.innerHTML += `<div><strong style="color: #ffeb3b;">${sender}:</strong> ${message}</div>`;
+    chatLog.scrollTop = chatLog.scrollHeight;
+    if (sender !== myName) {
+        chatSound.currentTime = 0;
+        chatSound.play().catch(err => console.log("Audio blocked:", err));
+    }
+}
+
+// --- TURN LOGIC & TIMER ---
+function advanceTurn() {
+    if (!isHost) return;
+
+    let nextIndex = (currentTurnIndex + 1) % players.length;
+    let guard = 0;
+    while ((finishedPlayers.includes(players[nextIndex]) || passedPlayers.includes(players[nextIndex])) && guard < players.length) {
+        nextIndex = (nextIndex + 1) % players.length;
+        guard++;
+    }
+
+    currentTurnIndex = nextIndex;
+    const turnMsg = { type: 'TURN_UPDATE', turnIndex: currentTurnIndex };
+    broadcastToClients(turnMsg);
+    handleIncomingData(turnMsg);
+}
+
+function revertTurn(playerName) {
+    if (!isHost) return;
+    currentTurnIndex = players.indexOf(playerName);
+    const turnMsg = { type: 'TURN_UPDATE', turnIndex: currentTurnIndex };
+    broadcastToClients(turnMsg);
+    handleIncomingData(turnMsg);
+}
+
+function updateTurnUI() {
+    const turnIndicator = document.getElementById('turn-indicator');
+    turnIndicator.style.display = 'block';
+    const currentPlayer = players[currentTurnIndex];
+
+    if (currentPlayer === myName) {
+        turnIndicator.innerText = "👉 It's your turn! 👈";
+        document.getElementById('play-btn').disabled = false;
+
+        document.getElementById('pass-btn').disabled = (currentTableCards.length === 0);
+    } else {
+        turnIndicator.innerText = `Waiting on ${currentPlayer}...`;
+        document.getElementById('play-btn').disabled = true;
+        document.getElementById('pass-btn').disabled = true;
+    }
+
+    if (finishedPlayers.includes(myName)) {
+        document.getElementById('play-btn').disabled = true;
+        document.getElementById('pass-btn').disabled = true;
+        document.getElementById('revert-btn').disabled = true;
+    }
+}
+
+function startTurnTimer() {
+    clearInterval(turnTimerInterval);
+    if (isPaused) return; // don't run the countdown while the game is paused
+    timeRemaining = TURN_LIMIT;
+
+    const timerDisplay = document.getElementById('timer-display');
+    timerDisplay.style.display = 'block';
+    timerDisplay.innerText = `⏳ ${timeRemaining}s`;
+
+    turnTimerInterval = setInterval(() => {
+        timeRemaining--;
+        timerDisplay.innerText = `⏳ ${timeRemaining}s`;
+        timerDisplay.style.color = timeRemaining <= 10 ? '#f44336' : '#ffeb3b';
+
+        if (timeRemaining <= 0) {
+            clearInterval(turnTimerInterval);
+            if (players[currentTurnIndex] === myName && !finishedPlayers.includes(myName)) {
+                logGame("Time's up! Auto-passing...");
+
+                if (currentTableCards.length === 0 && currentHand.length > 0) {
+                    const forcedCard = document.querySelectorAll('#my-hand .card');
+                    if(forcedCard.length) forcedCard[0].classList.add('selected');
+                    playSelectedCards();
+                } else {
+                    passTurn();
+                }
+            }
+        }
+    }, 1000);
+}
+
+// --- UTILITIES ---
+function startGame() {
+    finishedPlayers = [];
+    currentTableCards = [];
+    consecutivePasses = 0;
+    trickLeader = null;
+    passedPlayers = [];
+    document.getElementById('next-round-btn').style.display = 'none';
+
+    players.forEach(p => {
+        cardCounts[p] = 13;
+        if(playerScores[p] === undefined) playerScores[p] = 0;
+    });
+
+    updateOpponentUI();
+    updateScoreboardUI();
+    updateLeaderboardUI();
+    updateRoundHistoryUI();
+
+    document.getElementById('table-area').innerHTML = '';
+    document.getElementById('lobby-section').style.display = "none";
+    document.getElementById('game-section').style.display = "block";
+
+    const deck = generateDeck();
+    shuffle(deck);
+
+    let allHands = [];
+    for (let i = 0; i < players.length; i++) {
+        allHands.push(sortCards(deck.slice(i * 13, (i + 1) * 13)));
+    }
+
+    const firstIndex = 0;
+    currentHand = allHands[firstIndex];
+    renderHand(currentHand);
+
+    let startingPlayerIndex = 0;
+    gameLowestCard = null;
+
+    // --- BULLETPROOF DYNAMIC STARTING PLAYER RULE ---
+    if (roundHistory.length > 0) {
+        const lastWinner = roundHistory[roundHistory.length - 1];
+        startingPlayerIndex = players.indexOf(lastWinner);
+        if (startingPlayerIndex === -1) startingPlayerIndex = 0;
+        debugLog(`Next Round: Previous winner (${players[startingPlayerIndex]}) starts.`);
+    } else {
+        let absoluteLowestRank = 999;
+        let absoluteLowestSuit = 999;
+
+        allHands.forEach((hand, pIndex) => {
+            if(hand.length > 0) {
+                // Explicitly scan every single card in this player's hand to verify the lowest
+                let minCard = hand[0];
+                hand.forEach(c => {
+                    let rDiff = rankOrder[c.label] - rankOrder[minCard.label];
+                    if (rDiff < 0 || (rDiff === 0 && suitOrder[c.suit] < suitOrder[minCard.suit])) {
+                        minCard = c;
+                    }
+                });
+
+                let pRank = rankOrder[minCard.label];
+                let pSuit = suitOrder[minCard.suit];
+
+                // Compare this player's lowest card to the absolute lowest dealt across the board
+                if (pRank < absoluteLowestRank || (pRank === absoluteLowestRank && pSuit < absoluteLowestSuit)) {
+                    absoluteLowestRank = pRank;
+                    absoluteLowestSuit = pSuit;
+                    startingPlayerIndex = pIndex;
+                    gameLowestCard = minCard;
+                }
+            }
+        });
+        debugLog(`First Round: Lowest card dealt is ${gameLowestCard.label}${gameLowestCard.suit}. Player ${players[startingPlayerIndex]} starts.`);
+    }
+
+    clientConnections.forEach((c, i) => {
+        c.send({ type: 'START_GAME', lowestCard: gameLowestCard });
+        c.send({ type: 'DEAL', cards: allHands[i + 1] });
+        c.send({ type: 'SYNC_SCORES', scores: playerScores, history: roundHistory });
+    });
+
+    if (isHost) {
+        currentTurnIndex = startingPlayerIndex;
+        const turnMsg = { type: 'TURN_UPDATE', turnIndex: currentTurnIndex };
+        broadcastToClients(turnMsg);
+        handleIncomingData(turnMsg);
+    }
+}
+
+function updateOpponentUI() {
+    const container = document.getElementById('opponent-area');
+    container.innerHTML = '';
+    players.forEach(p => {
+        if (p !== myName) {
+            const div = document.createElement('div');
+            div.className = 'opponent-status';
+            div.innerHTML = `👤 ${p}: <span style="color:#ffeb3b;">${cardCounts[p] || 0}</span> cards`;
+            container.appendChild(div);
+        }
+    });
+}
+
+let handSortable = null;
+function renderHand(cards) {
+    const container = document.getElementById('my-hand');
+    container.innerHTML = '';
+    cards.forEach(c => container.appendChild(createCardElement(c, true)));
+    enableHandDragging(container);
+}
+
+// Let the player drag cards to rearrange their hand. Keeps currentHand in sync with the on-screen order.
+function enableHandDragging(container) {
+    if (typeof Sortable === 'undefined') return; // library failed to load — skip gracefully
+    if (handSortable) { handSortable.destroy(); handSortable = null; }
+    handSortable = new Sortable(container, {
+        animation: 150,
+        delay: 60,                 // small delay so a quick tap still selects a card
+        delayOnTouchOnly: true,
+        onEnd: function(evt) {
+            if (evt.oldIndex === evt.newIndex || evt.oldIndex == null) return;
+            const moved = currentHand.splice(evt.oldIndex, 1)[0];
+            currentHand.splice(evt.newIndex, 0, moved);
+        }
+    });
+}
+
+// Quick-sort helpers
+function sortHandByRank() {
+    currentHand = sortCards(currentHand); // by rank, then suit
+    renderHand(currentHand);
+}
+function sortHandBySuit() {
+    currentHand.sort((a, b) => suitOrder[a.suit] - suitOrder[b.suit] || rankOrder[a.label] - rankOrder[b.label]);
+    renderHand(currentHand);
+}
+
+function logGame(msg) {
+    const log = document.getElementById('game-log');
+    log.innerHTML += `<br>${msg}`;
+    log.scrollTop = log.scrollHeight;
+}
+
+// --- COLORFUL 4-DECK SUITS ---
+function generateDeck() {
+    const suits = ['♠', '♣', '♦', '♥'];
+    const labels = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+    return labels.flatMap(l => suits.map(s => {
+        let cardColor = 'black';
+        if (s === '♥') cardColor = 'red';
+        if (s === '♦') cardColor = 'blue';
+        if (s === '♣') cardColor = 'green';
+        return {label: l, suit: s, color: cardColor};
+    }));
+}
+
+function shuffle(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
+
+function updateLobbyUI() {
+    document.getElementById('player-count').innerText = players.length;
+    const list = document.getElementById('player-list');
+    list.innerHTML = "";
+    players.forEach(name => {
+        let li = document.createElement('li');
+        li.innerText = name;
+        li.style.margin = "5px";
+        list.appendChild(li);
+    });
+}
+
+function updateLeaderboardUI() {
+    const leaderboardBox = document.getElementById('leaderboard');
+    const leaderboardList = document.getElementById('leaderboard-list');
+
+    if (finishedPlayers.length > 0) {
+        leaderboardBox.style.display = 'block';
+        leaderboardList.innerHTML = '';
+        finishedPlayers.forEach((name, index) => {
+            const li = document.createElement('li');
+            li.innerText = name;
+            leaderboardList.appendChild(li);
+        });
+    } else {
+        leaderboardBox.style.display = 'none';
+    }
+}
+
+function updateScoreboardUI() {
+    const scoreList = document.getElementById('scoreboard-list');
+    scoreList.innerHTML = '';
+    const sortedPlayers = Object.keys(playerScores).sort((a, b) => playerScores[b] - playerScores[a]);
+
+    sortedPlayers.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `${p}: <span style="color:#ffeb3b;">${playerScores[p]}</span> pts`;
+        scoreList.appendChild(li);
+    });
+}
+
+function updateRoundHistoryUI() {
+    const historyList = document.getElementById('history-list');
+    historyList.innerHTML = '';
+
+    if (roundHistory.length > 0) {
+        roundHistory.forEach((winnerName, index) => {
+            const li = document.createElement('li');
+            li.innerHTML = `Round ${index + 1}: <span style="color:#4caf50;">${winnerName}</span>`;
+            historyList.appendChild(li);
+        });
+    } else {
+        historyList.innerHTML = `<li><span style="color:#888; font-size: 0.9rem;">No winners yet</span></li>`;
+    }
+}
+
+function broadcastToClients(data) { clientConnections.forEach(c => c.send(data)); }
+
+function triggerWinVisuals(winnerName, placeNum) {
+    if (placeNum === 1 && typeof confetti === 'function') {
+        confetti({
+            particleCount: 200,
+            spread: 100,
+            origin: { y: 0.5 },
+            zIndex: 9999
+        });
+    }
+
+    const banner = document.createElement('div');
+    banner.className = 'winner-banner';
+    let placeString = placeNum === 1 ? "1ST" : placeNum === 2 ? "2ND" : placeNum === 3 ? "3RD" : "4TH";
+
+    if (placeNum === 1) {
+        banner.innerText = `🎉 ${winnerName.toUpperCase()} WON 1ST PLACE! 🎉`;
+    } else {
+        banner.innerText = `👏 ${winnerName.toUpperCase()} FINISHED ${placeString}! 👏`;
+    }
+
+    document.body.appendChild(banner);
+    setTimeout(() => { if(banner) banner.remove(); }, 5000);
+}
+</script>
+</body>
+</html>
