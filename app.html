@@ -124,6 +124,14 @@ function computeRenterPayout(t, cfg) {
   const routable = t.service + t.ccTip; const fee = cardFee(routable, cfg);
   return { instantPayout: Math.max(0, routable - fee), cardFee: fee, cashTip: t.cashTip, salonRetail: t.retail };
 }
+// mirrors discountedTicket() in commissionEngine.ts
+function discountedTicket(t, discountCents, appliesTo) {
+  const d = Math.max(0, Math.round(discountCents)); if (d <= 0) return t;
+  if (appliesTo === "SERVICE") { const dS = Math.min(d, t.service); return { ...t, service: t.service - dS }; }
+  const base = t.service + t.retail; if (base <= 0) return t;
+  const dCap = Math.min(d, base); const dS = Math.round(dCap * t.service / base); const dR = dCap - dS;
+  return { ...t, service: t.service - dS, retail: t.retail - dR };
+}
 const fmt = (c) => { const s = c < 0 ? "-" : ""; const v = Math.abs(c || 0); return `${s}$${Math.floor(v / 100).toLocaleString()}.${String(v % 100).padStart(2, "0")}`; };
 const pct = (bps) => `${(bps / 100).toFixed(bps % 100 ? 2 : 0)}%`;
 
@@ -307,19 +315,24 @@ function Checkout({ techs, config, user, pending, clearPending, onComplete }) {
   const defaultTech = pending?.techId || (isTech ? user.id : techs[0].id);
   const [techId, setTechId] = useState(defaultTech);
   const [service, setService] = useState(8000); const [retail, setRetail] = useState(2000); const [ccTip, setCcTip] = useState(1500); const [cashTip, setCashTip] = useState(0);
+  const [dOff, setDOff] = useState(""); const [pOff, setPOff] = useState(""); const [appliesTo, setAppliesTo] = useState("TICKET"); const [absorb, setAbsorb] = useState("TECH"); const [reason, setReason] = useState("");
   const [done, setDone] = useState(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
   useEffect(() => { if (pending?.techId) setTechId(pending.techId); }, [pending]);
   const tech = techs.find((t) => t.id === techId) || techs[0]; const ticket = { service, retail, ccTip, cashTip }; const isW2 = tech.employmentType === "W2";
-  const w2 = useMemo(() => computeW2Ticket(ticket, tech, config), [service, retail, ccTip, cashTip, tech, config]);
-  const renter = useMemo(() => computeRenterPayout(ticket, config), [service, retail, ccTip, cashTip, config]);
-  const ticketTotal = service + retail + ccTip;
+  const discountableBase = appliesTo === "SERVICE" ? service : service + retail;
+  const discountCents = Math.min(discountableBase, Math.max(0, Math.round((parseFloat(dOff || "0") || 0) * 100) + Math.round(discountableBase * ((parseFloat(pOff || "0") || 0) / 100))));
+  const commissionTicket = (discountCents > 0 && absorb === "TECH") ? discountedTicket(ticket, discountCents, appliesTo) : ticket;
+  const w2 = computeW2Ticket(commissionTicket, tech, config);
+  const renter = computeRenterPayout(commissionTicket, config);
+  const ticketTotal = service + retail - discountCents + ccTip;
   const completeSale = async () => {
     setBusy(true); setErr(null);
     try {
       const lineItems = []; if (service > 0) lineItems.push({ kind: "SERVICE", description: "Service", amountCents: service }); if (retail > 0) lineItems.push({ kind: "RETAIL", description: "Retail", amountCents: retail });
       const tips = []; if (ccTip > 0) tips.push({ method: "CARD", amountCents: ccTip }); if (cashTip > 0) tips.push({ method: "CASH", amountCents: cashTip });
-      await onComplete({ techId, appointmentId: pending?.id ?? null, lineItems, tips });
-      setDone({ name: tech.name, isW2, amount: isW2 ? w2.techTakeHome : renter.instantPayout }); clearPending(); setService(0); setRetail(0); setCcTip(0); setCashTip(0);
+      const discount = discountCents > 0 ? { amountCents: discountCents, appliesTo, absorb, reason: reason || null } : null;
+      await onComplete({ techId, appointmentId: pending?.id ?? null, lineItems, tips, discount });
+      setDone({ name: tech.name, isW2, amount: isW2 ? w2.techTakeHome : renter.instantPayout }); clearPending(); setService(0); setRetail(0); setCcTip(0); setCashTip(0); setDOff(""); setPOff(""); setReason("");
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(false); }
   };
   return (
@@ -331,12 +344,31 @@ function Checkout({ techs, config, user, pending, clearPending, onComplete }) {
         <Card className="p-5"><h2 className="mb-4 text-lg font-bold">Ticket</h2>
           <label className="mb-4 block"><span className="mb-1 block text-xs font-medium text-gray-500">Assigned tech</span><select value={techId} onChange={(e) => setTechId(e.target.value)} disabled={isTech} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500">{(isTech ? techs.filter((t) => t.id === user.id) : techs).map((t) => <option key={t.id} value={t.id}>{t.name} ({t.employmentType === "W2" ? "W-2" : "1099"})</option>)}</select></label>
           <div className="grid grid-cols-2 gap-3"><MoneyInput label="Service" icon={Scissors} value={service} set={setService} /><MoneyInput label="Retail" icon={Package} value={retail} set={setRetail} /><MoneyInput label="Card tip" icon={CreditCard} value={ccTip} set={setCcTip} /><MoneyInput label="Cash tip" icon={Banknote} value={cashTip} set={setCashTip} /></div>
-          <div className="mt-4 rounded-xl bg-gray-50 p-3"><Row label="Ticket charged to card" value={fmt(ticketTotal)} strong /><p className="mt-1 text-xs text-gray-400">Cash tip ({fmt(cashTip)}) handed directly to tech — not on the card.</p></div></Card>
+          <div className="mt-4 rounded-xl border border-gray-200 p-3">
+            <div className="mb-2 text-xs font-semibold text-gray-500">Discount / correction (optional)</div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block"><span className="mb-1 block text-[11px] text-gray-400">$ off</span><input value={dOff} onChange={(e) => setDOff(e.target.value)} placeholder="0.00" className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm" /></label>
+              <label className="block"><span className="mb-1 block text-[11px] text-gray-400">% off</span><input value={pOff} onChange={(e) => setPOff(e.target.value)} placeholder="0" className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm" /></label>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div><div className="mb-1 text-[11px] text-gray-400">Applies to</div><div className="flex rounded-lg bg-gray-100 p-0.5 text-xs">{[["TICKET", "Whole ticket"], ["SERVICE", "Service only"]].map(([v, l]) => <button key={v} onClick={() => setAppliesTo(v)} className={`flex-1 rounded-md px-2 py-1 ${appliesTo === v ? "bg-white text-purple-700 shadow-sm font-semibold" : "text-gray-500"}`}>{l}</button>)}</div></div>
+              <div><div className="mb-1 text-[11px] text-gray-400">Absorbed by</div><div className="flex rounded-lg bg-gray-100 p-0.5 text-xs">{[["TECH", "Tech shares"], ["HOUSE", "House"]].map(([v, l]) => <button key={v} onClick={() => setAbsorb(v)} className={`flex-1 rounded-md px-2 py-1 ${absorb === v ? "bg-white text-purple-700 shadow-sm font-semibold" : "text-gray-500"}`}>{l}</button>)}</div></div>
+            </div>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (e.g. remake, coupon)" className="mt-2 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm" />
+            {discountCents > 0 && <div className="mt-2 text-xs text-emerald-700">– {fmt(discountCents)} off · {absorb === "TECH" ? "reduces the commission base" : "salon absorbs it — commission unaffected"}</div>}
+          </div>
+          <div className="mt-4 rounded-xl bg-gray-50 p-3">
+            <Row label="Subtotal (service + retail)" value={fmt(service + retail)} />
+            {discountCents > 0 && <Row label="Discount" value={`- ${fmt(discountCents)}`} tone="neg" />}
+            {ccTip > 0 && <Row label="Card tip" value={fmt(ccTip)} />}
+            <Row label="Ticket charged to card" value={fmt(ticketTotal)} strong />
+            <p className="mt-1 text-xs text-gray-400">Cash tip ({fmt(cashTip)}) handed directly to tech — not on the card.</p>
+          </div></Card>
         <Card className="p-5"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-bold">{isW2 ? "Commission Breakdown" : "Instant Payout"}</h2><Badge tone={isW2 ? "blue" : "purple"}>{isW2 ? "W-2 path" : "1099 path"}</Badge></div>
           {isW2 ? <div>
-            <Row label="Gross service" value={fmt(service)} /><Row label={`Card fee (${pct(config.ccFeePctBps)} + ${fmt(config.ccFeeFixedCents)})`} value={`- ${fmt(w2.ccFeeOnService)}`} tone="neg" /><Row label={`Product cost (${pct(config.productCostPctBps)})`} value={`- ${fmt(w2.productCost)}`} tone="neg" /><div className="my-1 border-t border-dashed border-gray-200" /><Row label="Net service revenue" value={fmt(w2.netService)} strong /><Row label={`Service commission (${pct(tech.serviceCommissionBps)})`} value={fmt(w2.serviceCommission)} tone="pos" /><Row label={`Retail commission (${pct(tech.retailCommissionBps)})`} value={fmt(w2.retailCommission)} tone="pos" /><Row label="Card tip (100% to tech)" value={fmt(w2.cardTip)} tone="pos" /><Row label="Cash tip" value={fmt(w2.cashTip)} tone="pos" /><div className="my-1 border-t border-gray-200" /><Row label="Tech earns this ticket" value={fmt(w2.techTakeHome)} strong /><div className="mt-4 flex items-start gap-2 rounded-xl bg-blue-50 p-3 text-xs text-blue-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>Commission accrues to payroll. Final pay is re-checked against the minimum-wage floor &amp; overtime each workweek (see Dashboard).</span></div>
+            <Row label="Gross service" value={fmt(commissionTicket.service)} /><Row label={`Card fee (${pct(config.ccFeePctBps)} + ${fmt(config.ccFeeFixedCents)})`} value={`- ${fmt(w2.ccFeeOnService)}`} tone="neg" /><Row label={`Product cost (${pct(config.productCostPctBps)})`} value={`- ${fmt(w2.productCost)}`} tone="neg" /><div className="my-1 border-t border-dashed border-gray-200" /><Row label="Net service revenue" value={fmt(w2.netService)} strong /><Row label={`Service commission (${pct(tech.serviceCommissionBps)})`} value={fmt(w2.serviceCommission)} tone="pos" /><Row label={`Retail commission (${pct(tech.retailCommissionBps)})`} value={fmt(w2.retailCommission)} tone="pos" /><Row label="Card tip (100% to tech)" value={fmt(w2.cardTip)} tone="pos" /><Row label="Cash tip" value={fmt(w2.cashTip)} tone="pos" /><div className="my-1 border-t border-gray-200" /><Row label="Tech earns this ticket" value={fmt(w2.techTakeHome)} strong /><div className="mt-4 flex items-start gap-2 rounded-xl bg-blue-50 p-3 text-xs text-blue-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>Commission accrues to payroll. Final pay is re-checked against the minimum-wage floor &amp; overtime each workweek (see Dashboard).</span></div>
           </div> : <div>
-            <Row label="Gross service" value={fmt(service)} /><Row label="Card tip" value={fmt(ccTip)} /><Row label="Card processing fee" value={`- ${fmt(renter.cardFee)}`} tone="neg" /><div className="my-1 border-t border-gray-200" /><Row label="Instant payout → contractor bank" value={fmt(renter.instantPayout)} strong tone="pos" /><Row label="Cash tip (already with tech)" value={fmt(renter.cashTip)} /><Row label="Retail → salon" value={fmt(renter.salonRetail)} /><div className="mt-4 flex items-start gap-2 rounded-xl bg-purple-50 p-3 text-xs text-purple-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>No commission split — booth renter keeps gross service. Salon earns via chair rent, billed separately as a recurring charge.</span></div>
+            <Row label="Gross service" value={fmt(commissionTicket.service)} /><Row label="Card tip" value={fmt(ccTip)} /><Row label="Card processing fee" value={`- ${fmt(renter.cardFee)}`} tone="neg" /><div className="my-1 border-t border-gray-200" /><Row label="Instant payout → contractor bank" value={fmt(renter.instantPayout)} strong tone="pos" /><Row label="Cash tip (already with tech)" value={fmt(renter.cashTip)} /><Row label="Retail → salon" value={fmt(renter.salonRetail)} /><div className="mt-4 flex items-start gap-2 rounded-xl bg-purple-50 p-3 text-xs text-purple-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>No commission split — booth renter keeps gross service. Salon earns via chair rent, billed separately as a recurring charge.</span></div>
           </div>}
           <button onClick={completeSale} disabled={busy || service + retail === 0} className="mt-4 w-full rounded-xl bg-purple-600 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{busy ? "Processing…" : isW2 ? "Complete sale & record commission" : "Complete sale & send instant payout"}</button>
           {service + retail === 0 && <p className="mt-2 text-center text-xs text-gray-400">Add a service or retail amount to check out.</p>}</Card>

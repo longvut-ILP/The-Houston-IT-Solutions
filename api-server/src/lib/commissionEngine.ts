@@ -143,6 +143,46 @@ export function computeW2Ticket(
 }
 
 // ---------------------------------------------------------------------------
+// Discounts / corrections
+// ---------------------------------------------------------------------------
+
+export type DiscountAppliesTo = "TICKET" | "SERVICE";
+
+/**
+ * Return a copy of the ticket with `discountCents` removed from the revenue the
+ * commission/payout is computed on. Tips are never discounted. For "SERVICE" the
+ * cut comes only off service revenue; for "TICKET" it's split across service and
+ * retail in proportion to their amounts. The discount is clamped so revenue
+ * never goes negative. This is used only when the TECH shares the discount; when
+ * the HOUSE absorbs it, the caller passes the original (undiscounted) ticket to
+ * the engine so the tech's commission is unaffected.
+ */
+export function discountedTicket(
+  ticket: Ticket,
+  discountCents: Cents,
+  appliesTo: DiscountAppliesTo
+): Ticket {
+  const d = Math.max(0, Math.round(discountCents));
+  if (d <= 0) return ticket;
+  const svc = ticket.serviceRevenueCents;
+  const rtl = ticket.retailRevenueCents;
+  if (appliesTo === "SERVICE") {
+    const dS = Math.min(d, svc);
+    return { ...ticket, serviceRevenueCents: svc - dS };
+  }
+  const base = svc + rtl;
+  if (base <= 0) return ticket;
+  const dCap = Math.min(d, base);
+  const dS = Math.round((dCap * svc) / base);
+  const dR = dCap - dS;
+  return {
+    ...ticket,
+    serviceRevenueCents: svc - dS,
+    retailRevenueCents: rtl - dR,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Per-ticket payout (1099 booth-renter path)
 // ---------------------------------------------------------------------------
 

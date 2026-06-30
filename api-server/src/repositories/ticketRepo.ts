@@ -15,6 +15,10 @@ export interface InsertTicketParams {
   snapProductCostPctBps: number;
   snapServiceCommissionBps: number | null;
   snapRetailCommissionBps: number | null;
+  discountCents?: number;
+  discountAppliesTo?: string | null;
+  discountAbsorb?: string | null;
+  discountReason?: string | null;
 }
 
 export async function insertTicket(db: Db, p: InsertTicketParams): Promise<string> {
@@ -22,8 +26,9 @@ export async function insertTicket(db: Db, p: InsertTicketParams): Promise<strin
     `INSERT INTO tickets
        (salon_id, tech_id, appointment_id, status, employment_type_snapshot,
         snap_cc_fee_pct_bps, snap_cc_fee_fixed_cents, snap_product_cost_pct_bps,
-        snap_service_commission_bps, snap_retail_commission_bps, completed_at)
-     VALUES ($1,$2,$3,'COMPLETED',$4,$5,$6,$7,$8,$9, now())
+        snap_service_commission_bps, snap_retail_commission_bps,
+        discount_cents, discount_applies_to, discount_absorb, discount_reason, completed_at)
+     VALUES ($1,$2,$3,'COMPLETED',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
      RETURNING id`,
     [
       p.salonId,
@@ -35,6 +40,10 @@ export async function insertTicket(db: Db, p: InsertTicketParams): Promise<strin
       p.snapProductCostPctBps,
       p.snapServiceCommissionBps,
       p.snapRetailCommissionBps,
+      p.discountCents ?? 0,
+      p.discountAppliesTo ?? null,
+      p.discountAbsorb ?? null,
+      p.discountReason ?? null,
     ]
   );
   return rows[0].id;

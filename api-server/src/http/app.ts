@@ -59,6 +59,14 @@ const checkoutSchema = z.object({
       })
     )
     .optional(),
+  discount: z
+    .object({
+      amountCents: z.number().int().min(0),
+      appliesTo: z.enum(["TICKET", "SERVICE"]),
+      absorb: z.enum(["TECH", "HOUSE"]),
+      reason: z.string().max(200).nullish(),
+    })
+    .nullish(),
 });
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");

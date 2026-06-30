@@ -6,6 +6,7 @@ import { getPaymentProvider } from "../payments/MockPaymentProvider";
 import {
   computeRenterPayout,
   computeW2Ticket,
+  discountedTicket,
   Ticket,
 } from "../lib/commissionEngine";
 
@@ -19,11 +20,18 @@ export interface CheckoutTip {
   method: "CARD" | "CASH";
   amountCents: number;
 }
+export interface CheckoutDiscount {
+  amountCents: number; // already computed by the client from $ and/or %
+  appliesTo: "TICKET" | "SERVICE";
+  absorb: "TECH" | "HOUSE"; // TECH: commission on discounted revenue; HOUSE: salon eats it
+  reason?: string | null;
+}
 export interface CheckoutInput {
   techId: string;
   appointmentId?: string | null;
   lineItems: CheckoutLineItem[];
   tips?: CheckoutTip[];
+  discount?: CheckoutDiscount | null;
   actorStaffId?: string | null;
 }
 
@@ -65,6 +73,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     cashTipCents: cashTip,
   };
 
+  // Discount / correction. Clamped to the discountable base; tips are never
+  // discounted. When the TECH shares it, commission runs on the reduced ticket;
+  // when the HOUSE absorbs it, commission runs on the full ticket and the
+  // discount only reduces what the salon collects.
+  const dAppliesTo = input.discount?.appliesTo ?? "TICKET";
+  const dAbsorb = input.discount?.absorb ?? "TECH";
+  const discountableBase =
+    dAppliesTo === "SERVICE" ? serviceRevenue : serviceRevenue + retailRevenue;
+  const discountCents = input.discount
+    ? Math.min(discountableBase, Math.max(0, Math.round(input.discount.amountCents)))
+    : 0;
+  const commissionTicket =
+    discountCents > 0 && dAbsorb === "TECH"
+      ? discountedTicket(ticket, discountCents, dAppliesTo)
+      : ticket;
+
   const isW2 = staff.tech.employmentType === "W2";
 
   const persisted = await withTx(async (db) => {
@@ -78,6 +102,10 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       snapProductCostPctBps: config.productCostPctBps,
       snapServiceCommissionBps: isW2 ? staff.tech.serviceCommissionBps : null,
       snapRetailCommissionBps: isW2 ? staff.tech.retailCommissionBps : null,
+      discountCents,
+      discountAppliesTo: discountCents > 0 ? dAppliesTo : null,
+      discountAbsorb: discountCents > 0 ? dAbsorb : null,
+      discountReason: discountCents > 0 ? input.discount?.reason ?? null : null,
     });
 
     for (const l of input.lineItems) {
@@ -88,11 +116,13 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     await ticketRepo.insertTip(db, ticketId, "CARD", ccTip);
     await ticketRepo.insertTip(db, ticketId, "CASH", cashTip);
 
-    // Card charge into the salon's merchant account (service + retail + card tip).
+    // Card charge into the salon's merchant account: what the customer actually
+    // pays = (service + retail - discount) + card tip. The discount always
+    // reduces the amount collected, regardless of who absorbs the commission hit.
     await ticketRepo.insertLedger(db, {
       salonId: staff.salonId,
       kind: "CARD_CHARGE",
-      amountCents: serviceRevenue + retailRevenue + ccTip,
+      amountCents: serviceRevenue + retailRevenue - discountCents + ccTip,
       ticketId,
       status: "PAID",
     });
@@ -101,22 +131,23 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let payoutId: string | undefined;
 
     if (isW2) {
-      const b = computeW2Ticket(ticket, staff.tech, config);
+      const b = computeW2Ticket(commissionTicket, staff.tech, config);
       await ticketRepo.insertCommissionRecord(db, {
         ticketId,
         techId: input.techId,
-        grossServiceCents: serviceRevenue,
+        grossServiceCents: commissionTicket.serviceRevenueCents,
         ccFeeOnServiceCents: b.ccFeeOnServiceCents,
         productCostCents: b.productCostCents,
         netServiceCents: b.netServiceRevenueCents,
         serviceCommissionCents: b.serviceCommissionCents,
-        retailRevenueCents: retailRevenue,
+        retailRevenueCents: commissionTicket.retailRevenueCents,
         retailCommissionCents: b.retailCommissionCents,
         commissionWagesCents: b.commissionWagesCents,
         cardTipCents: b.cardTipCents,
         cashTipCents: b.cashTipCents,
       });
       breakdown = {
+        discountCents,
         ccFeeOnServiceCents: b.ccFeeOnServiceCents,
         productCostCents: b.productCostCents,
         netServiceRevenueCents: b.netServiceRevenueCents,
@@ -128,11 +159,11 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         techTakeHomeCents: b.techTakeHomeCents,
       };
     } else {
-      const p = computeRenterPayout(ticket, config);
+      const p = computeRenterPayout(commissionTicket, config);
       payoutId = await ticketRepo.insertPayoutRecord(db, {
         ticketId,
         techId: input.techId,
-        grossServiceCents: serviceRevenue,
+        grossServiceCents: commissionTicket.serviceRevenueCents,
         cardTipCents: ccTip,
         cardFeeCents: p.cardFeeCents,
         instantPayoutCents: p.instantPayoutCents,
@@ -152,6 +183,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         status: "PENDING",
       });
       breakdown = {
+        discountCents,
         cardFeeCents: p.cardFeeCents,
         instantPayoutCents: p.instantPayoutCents,
         cashTipCents: p.cashTipCents,
@@ -168,7 +200,13 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       entityType: "ticket",
       entityId: ticketId,
       action: "CHECKOUT",
-      after: { path: isW2 ? "W2" : "1099", ...breakdown },
+      after: {
+        path: isW2 ? "W2" : "1099",
+        ...breakdown,
+        ...(discountCents > 0
+          ? { discountAppliesTo: dAppliesTo, discountAbsorb: dAbsorb, discountReason: input.discount?.reason ?? null }
+          : {}),
+      },
     });
 
     return { ticketId, breakdown, payoutId };
