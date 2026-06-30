@@ -164,6 +164,9 @@ button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filt
 <div id="game-section" class="box" style="max-width: 800px; display: none;">
 <h2>Game Board</h2>
 
+<div id="spectator-banner" style="display:none; background:#37474f; color:#fff; padding:8px 12px; border-radius:6px; margin-bottom:10px;">👀 You're spectating — you'll be dealt in when a seat opens.</div>
+<div id="game-waiting" style="display:none; background:#2a2a2a; padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:0.9em; color:#ffb74d;"></div>
+
 <!-- Turn Indicator & Timer -->
 <h3 id="turn-indicator" style="display: none;">Waiting for game to start...</h3>
 <div id="timer-display">⏳ 30s</div>
@@ -211,6 +214,15 @@ button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filt
 <button id="revert-btn" class="btn-danger" disabled>Revert Last Play</button>
 <button id="pause-btn" style="background:#9c27b0; color:white;">⏸ Pause Game</button>
 
+<!-- Between-rounds ready check -->
+<div id="ready-panel" style="display:none; margin-top:20px; background:#222; padding:14px; border-radius:8px;">
+  <h3 style="margin:0 0 8px;">Round over — ready up for the next one</h3>
+  <ul id="ready-list" style="list-style:none; padding:0; margin:0 0 10px;"></ul>
+  <p id="ready-status" style="color:#9ccc65; margin:0 0 12px;"></p>
+  <button id="ready-btn" style="background:#10b981; color:#06281e; width:auto; padding:10px 18px;">✅ I'm Ready</button>
+  <button id="sitout-btn" class="btn-pass" style="width:auto; padding:10px 18px;">🪑 Sit out (give up my seat)</button>
+</div>
+
 <!-- Host Control to Deal Next Round -->
 <button id="next-round-btn" style="display:none; background:#4caf50; color:white; margin-top: 20px;">Deal Next Round</button>
 <button id="leave-game-btn" class="btn-danger" style="margin-top: 20px;">🚪 Leave Room</button>
@@ -225,6 +237,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('next-round-btn').addEventListener('click', startGame);
     document.getElementById('leave-lobby-btn').addEventListener('click', leaveRoom);
     document.getElementById('leave-game-btn').addEventListener('click', leaveRoom);
+    document.getElementById('ready-btn').addEventListener('click', toggleReady);
+    document.getElementById('sitout-btn').addEventListener('click', sitOut);
     document.getElementById('play-btn').addEventListener('click', playSelectedCards);
     document.getElementById('pass-btn').addEventListener('click', passTurn);
     document.getElementById('revert-btn').addEventListener('click', revertLastPlay);
@@ -252,6 +266,9 @@ let waitingPlayers = [];           // names in line (host-authoritative, mirrore
 let connByName = {};               // host only: player name -> DataConnection
 let gameInProgress = false;        // host: a hand is currently being played
 let lobbyInProgress = false;       // client: host says a game is running
+let readyPhase = false;            // between rounds: waiting for players to ready up
+let readyMap = {};                 // host-authoritative: seated name -> ready(bool)
+let isSpectator = false;           // this client is watching (in line, not seated)
 
 // Tracker Variables
 let cardCounts = {};
@@ -557,11 +574,39 @@ function handleIncomingData(data, conn) {
         // otherwise puts them in the waiting line.
         const name = uniqueName(data.name);
         if (conn) { conn.playerName = name; connByName[name] = conn; }
-        if (!gameInProgress && players.length < MAX_SEATS) players.push(name);
+        const canSeat = !gameInProgress && !readyPhase && players.length < MAX_SEATS;
+        if (canSeat) players.push(name);
         else waitingPlayers.push(name);
         if (conn) conn.send({ type: 'YOUR_NAME', name: name });
+        // Late joiner during a game/ready phase -> let them watch.
+        if (conn && (gameInProgress || readyPhase)) {
+            conn.send({ type: 'SPECTATE', players: players, waiting: waitingPlayers,
+                        cardCounts: cardCounts, table: currentTableCards, turnIndex: currentTurnIndex,
+                        scores: playerScores, history: roundHistory });
+        }
         broadcastLobby();
         updateLobbyUI();
+        updateGameWaitingUI();
+    }
+    if (data.type === 'READY_SET' && isHost) {
+        setReady(data.name, data.ready);
+    }
+    if (data.type === 'SITOUT' && isHost) {
+        hostSitOut(data.name);
+    }
+    if (data.type === 'READY_PHASE') {
+        players = data.players || players;
+        waitingPlayers = data.waiting || [];
+        readyMap = data.ready || {};
+        gameInProgress = false;
+        enterReadyPhase();
+    }
+    if (data.type === 'READY_STATE') {
+        readyMap = data.ready || {};
+        renderReadyPanel();
+    }
+    if (data.type === 'SPECTATE') {
+        enterSpectator(data);
     }
     if (data.type === 'YOUR_NAME') {
         myName = data.name; // host may have adjusted it for uniqueness
@@ -571,6 +616,8 @@ function handleIncomingData(data, conn) {
         waitingPlayers = data.waiting || [];
         lobbyInProgress = !!data.inProgress;
         updateLobbyUI();
+        updateGameWaitingUI();
+        if (readyPhase) renderReadyPanel();
     }
     if (data.type === 'LEAVE') {
         if (isHost) handlePlayerGone(conn ? conn.playerName : data.name);
@@ -590,6 +637,8 @@ function handleIncomingData(data, conn) {
         if (data.players) players = data.players;
         if (data.waiting) waitingPlayers = data.waiting;
         lobbyInProgress = true;
+        readyPhase = false;
+        document.getElementById('ready-panel').style.display = 'none';
         finishedPlayers = [];
         currentTableCards = [];
         consecutivePasses = 0;
@@ -609,6 +658,8 @@ function handleIncomingData(data, conn) {
         updateScoreboardUI();
         updateLeaderboardUI();
         updateRoundHistoryUI();
+        applyRoleView();
+        updateGameWaitingUI();
 
         document.getElementById('table-area').innerHTML = '';
     }
@@ -671,11 +722,7 @@ function handleIncomingData(data, conn) {
                 document.getElementById('turn-indicator').innerText = "Game Over!";
                 if (isHost) {
                     gameInProgress = false;
-                    document.getElementById('next-round-btn').style.display = 'inline-block';
-                    const loser = players.find(p => !finishedPlayers.includes(p));
-                    if (loser && waitingPlayers.length > 0) {
-                        logGame(`${loser} will sit out next round — someone in line is up.`);
-                    }
+                    startReadyPhase();
                 }
             }
         }
@@ -1012,6 +1059,10 @@ function startGame() {
     }
     if (players.length < 2) { alert("Need at least 2 players to start."); return; }
 
+    readyPhase = false;
+    readyMap = {};
+    document.getElementById('ready-panel').style.display = 'none';
+
     finishedPlayers = [];
     currentTableCards = [];
     consecutivePasses = 0;
@@ -1091,8 +1142,9 @@ function startGame() {
             c.send({ type: 'DEAL', cards: allHands[idx] });
             c.send({ type: 'SYNC_SCORES', scores: playerScores, history: roundHistory });
         } else {
-            c.send({ type: 'RETURN_LOBBY', players: players, waiting: waitingPlayers,
-                     inProgress: true, reason: "You're in line — you'll be dealt in when a seat opens." });
+            c.send({ type: 'SPECTATE', players: players, waiting: waitingPlayers,
+                     cardCounts: cardCounts, table: [], turnIndex: startingPlayerIndex,
+                     scores: playerScores, history: roundHistory });
         }
     });
 
@@ -1100,6 +1152,7 @@ function startGame() {
     const myIdx = players.indexOf(myName);
     if (myIdx !== -1) { currentHand = allHands[myIdx]; renderHand(currentHand); }
     else { currentHand = []; renderHand(currentHand); logGame("You're sitting out this round — watching."); }
+    applyRoleView();
 
     gameInProgress = true;
 
@@ -1315,6 +1368,7 @@ function handlePlayerGone(name) {
     if (!name) return;
     clientConnections = clientConnections.filter(c => c.playerName !== name);
     delete connByName[name];
+    delete readyMap[name];
     const wasSeated = players.includes(name);
     waitingPlayers = waitingPlayers.filter(n => n !== name);
     players = players.filter(n => n !== name);
@@ -1327,8 +1381,181 @@ function handlePlayerGone(name) {
         return;
     }
     if (wasSeated) promoteFromWaiting(); // fill the empty seat from the line
-    broadcastLobby();
-    updateLobbyUI();
+
+    if (readyPhase) {
+        // A promoted seat counts as ready (they came from the line, waiting to play).
+        players.forEach(p => { if (readyMap[p] === undefined) readyMap[p] = true; });
+        broadcastToClients({ type: 'READY_PHASE', players: players, waiting: waitingPlayers, ready: readyMap });
+        enterReadyPhase();
+        maybeStartNextRound();
+    } else {
+        broadcastLobby();
+        updateLobbyUI();
+    }
+    updateGameWaitingUI();
+}
+
+// ===== Ready-check + spectating =====
+
+// Host: a round just ended — open the ready phase.
+function startReadyPhase() {
+    readyPhase = true;
+    readyMap = {};
+    players.forEach(p => { readyMap[p] = false; });
+    broadcastToClients({ type: 'READY_PHASE', players: players, waiting: waitingPlayers, ready: readyMap });
+    enterReadyPhase();
+}
+
+// Everyone: show the between-rounds ready UI (seated) or keep watching (spectator).
+function enterReadyPhase() {
+    readyPhase = true;
+    const seated = players.includes(myName);
+    isSpectator = !seated;
+    document.getElementById('next-round-btn').style.display = 'none';
+    document.getElementById('timer-display').style.display = 'none';
+    ['play-btn', 'pass-btn', 'revert-btn'].forEach(id => {
+        const e = document.getElementById(id); if (e) e.style.display = 'none';
+    });
+    document.getElementById('spectator-banner').style.display = seated ? 'none' : 'block';
+    document.getElementById('ready-panel').style.display = seated ? 'block' : 'none';
+    document.getElementById('my-hand').style.display = seated ? '' : 'none';
+    document.getElementById('hand-tools').style.display = seated ? '' : 'none';
+    document.getElementById('turn-indicator').innerText = "Round over — readying up…";
+    document.getElementById('turn-indicator').style.display = 'block';
+    renderReadyPanel();
+    updateGameWaitingUI();
+}
+
+// Draw the per-player ready list + status + button label.
+function renderReadyPanel() {
+    const list = document.getElementById('ready-list');
+    if (list) {
+        list.innerHTML = '';
+        players.forEach(p => {
+            const li = document.createElement('li');
+            li.innerHTML = (readyMap[p] ? '✅ ' : '⏳ ') + p + (p === myName ? ' (you)' : '');
+            li.style.margin = '4px 0';
+            list.appendChild(li);
+        });
+    }
+    const status = document.getElementById('ready-status');
+    if (status) {
+        const readyCount = players.filter(p => readyMap[p]).length;
+        status.innerText = `${readyCount}/${players.length} ready`
+            + (waitingPlayers.length ? `  ·  ${waitingPlayers.length} in line` : '');
+    }
+    const btn = document.getElementById('ready-btn');
+    if (btn) btn.innerText = readyMap[myName] ? '↩ Not ready' : "✅ I'm Ready";
+}
+
+// Seated player toggles their readiness.
+function toggleReady() {
+    if (!players.includes(myName)) return;
+    const now = !readyMap[myName];
+    if (isHost) {
+        setReady(myName, now);
+    } else {
+        readyMap[myName] = now;
+        renderReadyPanel();
+        try { hostConnection.send({ type: 'READY_SET', name: myName, ready: now }); } catch (e) {}
+    }
+}
+
+// Host records a readiness change and starts the next round once everyone's set.
+function setReady(name, ready) {
+    if (!players.includes(name)) return;
+    readyMap[name] = ready;
+    broadcastToClients({ type: 'READY_STATE', ready: readyMap });
+    renderReadyPanel();
+    maybeStartNextRound();
+}
+
+// Host: deal the next round when all (continuing) seated players are ready.
+function maybeStartNextRound() {
+    if (!readyPhase || !isHost) return;
+    if (players.length < 2) return;
+    // The loser will be rotated out if anyone is waiting, so don't wait on them.
+    const willRotateOut = (waitingPlayers.length > 0 && finishedPlayers.length > 0)
+        ? players.find(p => !finishedPlayers.includes(p)) : null;
+    const needed = players.filter(p => p !== willRotateOut);
+    if (needed.length >= 1 && needed.every(p => readyMap[p])) {
+        startGame();
+    }
+}
+
+// Seated player gives up their seat to the next person in line.
+function sitOut() {
+    if (!players.includes(myName)) return;
+    if (isHost) hostSitOut(myName);
+    else { try { hostConnection.send({ type: 'SITOUT', name: myName }); } catch (e) {} }
+}
+
+// Host: move a seated player to the back of the line, seat the next person.
+function hostSitOut(name) {
+    if (!players.includes(name)) return;
+    if (waitingPlayers.length === 0) { setReady(name, false); return; }
+    players = players.filter(p => p !== name);
+    delete readyMap[name];
+    waitingPlayers.push(name);
+    promoteFromWaiting();
+    const incoming = players[players.length - 1];
+    readyMap[incoming] = true; // they were waiting to play
+    logGame(`${name} sits out — ${incoming} takes the seat.`);
+    broadcastToClients({ type: 'READY_PHASE', players: players, waiting: waitingPlayers, ready: readyMap });
+    const c = connByName[name];
+    if (c) c.send({ type: 'SPECTATE', players: players, waiting: waitingPlayers,
+                    cardCounts: cardCounts, table: currentTableCards, turnIndex: currentTurnIndex,
+                    scores: playerScores, history: roundHistory });
+    enterReadyPhase(); // host re-renders (becomes spectator if it sat itself out)
+    maybeStartNextRound();
+}
+
+// Active-play view vs spectator view (hand + controls hidden when watching).
+function applyRoleView() {
+    const seated = players.includes(myName);
+    isSpectator = !seated;
+    document.getElementById('spectator-banner').style.display = seated ? 'none' : 'block';
+    document.getElementById('ready-panel').style.display = 'none';
+    document.getElementById('my-hand').style.display = seated ? '' : 'none';
+    document.getElementById('hand-tools').style.display = seated ? '' : 'none';
+    ['play-btn', 'pass-btn', 'revert-btn', 'pause-btn'].forEach(id => {
+        const e = document.getElementById(id); if (e) e.style.display = seated ? '' : 'none';
+    });
+    updateGameWaitingUI();
+}
+
+// A waiting player switches into watch mode and sees the live table.
+function enterSpectator(data) {
+    players = data.players || players;
+    waitingPlayers = data.waiting || [];
+    if (data.scores) playerScores = data.scores;
+    if (data.history) roundHistory = data.history;
+    if (data.cardCounts) cardCounts = data.cardCounts;
+    if (typeof data.turnIndex === 'number') currentTurnIndex = data.turnIndex;
+    lobbyInProgress = true;
+    document.getElementById('lobby-section').style.display = 'none';
+    document.getElementById('game-section').style.display = 'block';
+    renderTable(data.table && data.table.length ? data.table : []);
+    currentTableCards = data.table || [];
+    applyRoleView();
+    updateOpponentUI();
+    updateScoreboardUI();
+    updateRoundHistoryUI();
+    const ti = document.getElementById('turn-indicator');
+    ti.style.display = 'block';
+    ti.innerText = players[currentTurnIndex] ? `Watching — ${players[currentTurnIndex]}'s turn` : 'Spectating';
+}
+
+// Show the waiting line on the game screen (for seated players and spectators).
+function updateGameWaitingUI() {
+    const box = document.getElementById('game-waiting');
+    if (!box) return;
+    if (waitingPlayers.length > 0) {
+        box.style.display = 'block';
+        box.innerText = '⏳ In line: ' + waitingPlayers.map((n, i) => `${i + 1}. ${n}`).join('    ');
+    } else {
+        box.style.display = 'none';
+    }
 }
 
 // Host: stop the current hand and send everyone back to the lobby.
