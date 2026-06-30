@@ -780,21 +780,30 @@ function handleIncomingData(data, conn) {
         let activePlayers = players.filter(p => !finishedPlayers.includes(p));
         let stillInPlay = activePlayers.filter(p => !passedPlayers.includes(p));
 
-        // Trick ends when only one active player has NOT passed — they lead the new round
-        if (stillInPlay.length <= 1 && activePlayers.length > 1) {
+        // The player who made the last (winning) play. If they've gone out, the
+        // trick must keep going until EVERY remaining player has passed.
+        const leaderActive = trickLeader && !finishedPlayers.includes(trickLeader);
+        const trickOver = leaderActive
+            ? (stillInPlay.length <= 1 && activePlayers.length > 1)  // only the leader remains
+            : (stillInPlay.length === 0 && activePlayers.length >= 1); // everyone passed the out-player
+
+        if (trickOver) {
             currentTableCards = [];
             document.getElementById('table-area').innerHTML = '';
-            logGame("Round over — table cleared. The remaining player leads a new round.");
+            logGame("Round over — table cleared. New round begins.");
 
             consecutivePasses = 0;
             passedPlayers = [];
 
             if (isHost) {
                 broadcastToClients(data);
-                // The single remaining player (last to play) starts the new round
-                let nextLeader = stillInPlay.length === 1 ? stillInPlay[0] : trickLeader;
+                // Who leads next: the leader if still in; otherwise the next
+                // active player AFTER the one who went out (seating order).
+                let nextLeader = leaderActive
+                    ? (stillInPlay.length === 1 ? stillInPlay[0] : trickLeader)
+                    : nextActiveAfter(trickLeader);
                 let leaderIndex = players.indexOf(nextLeader);
-                if (leaderIndex === -1 || finishedPlayers.includes(nextLeader)) {
+                if (leaderIndex === -1 || finishedPlayers.includes(players[leaderIndex])) {
                     leaderIndex = (currentTurnIndex + 1) % players.length;
                     let guard = 0;
                     while (finishedPlayers.includes(players[leaderIndex]) && guard < players.length) {
@@ -987,6 +996,17 @@ function appendChatMessage(sender, message) {
 }
 
 // --- TURN LOGIC & TIMER ---
+// Next still-playing player after `name` in seating order (skips finished players).
+function nextActiveAfter(name) {
+    const start = players.indexOf(name);
+    if (start === -1) return null;
+    for (let step = 1; step <= players.length; step++) {
+        const idx = (start + step) % players.length;
+        if (!finishedPlayers.includes(players[idx])) return players[idx];
+    }
+    return null;
+}
+
 function advanceTurn() {
     if (!isHost) return;
 
