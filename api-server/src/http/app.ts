@@ -5,6 +5,7 @@ import { getCurrentConfig } from "../repositories/settingsRepo";
 import { getStaffWithProfile, listStaffWithProfiles } from "../repositories/staffRepo";
 import { getTicketsForDay } from "../repositories/reportsRepo";
 import { checkout } from "../services/checkoutService";
+import { voidTicket, listDaySales } from "../services/ticketService";
 import {
   computeWorkweek,
   computeWorkweekForSalon,
@@ -273,6 +274,28 @@ export function createApp() {
       // Techs only see their own tickets; managers see the whole salon.
       const techId = auth.role === "TECH" ? auth.staffId : undefined;
       res.json(await getTicketsForDay(pool, req.params.salonId, q.date, techId));
+    })
+  );
+
+  // Manager view of a day's sales (all statuses) — powers the void list.
+  app.get(
+    "/salons/:salonId/sales",
+    requireRole("OWNER", "ADMIN"),
+    h(async (req, res) => {
+      assertSalon(req, req.params.salonId);
+      const q = z.object({ date: dateStr }).parse(req.query);
+      res.json(await listDaySales(req.params.salonId, q.date));
+    })
+  );
+
+  // Void a completed ticket (reversing entry — nothing is deleted).
+  app.post(
+    "/tickets/:id/void",
+    requireRole("OWNER", "ADMIN"),
+    h(async (req, res) => {
+      const auth = getAuth(req);
+      const b = z.object({ reason: z.string().max(200).nullish() }).parse(req.body ?? {});
+      res.json(await voidTicket(auth.salonId, req.params.id, auth.staffId, b.reason ?? null));
     })
   );
 

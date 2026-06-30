@@ -101,12 +101,14 @@ const createStaff = (body) => request(`/staff`, { method: "POST", body: JSON.str
 const setStaffPassword = (staffId, password) => request(`/staff/${staffId}/credential`, { method: "POST", body: JSON.stringify({ password }) });
 const createAppointment = (body) => request(`/appointments`, { method: "POST", body: JSON.stringify({ salonId: getSalonId(), ...body }) });
 const checkout = (body) => request(`/checkout`, { method: "POST", body: JSON.stringify(body) });
+const getSales = (date, salonId = getSalonId()) => request(`/salons/${salonId}/sales?date=${date}`);
+const voidTicket = (id, reason) => request(`/tickets/${id}/void`, { method: "POST", body: JSON.stringify({ reason: reason || null }) });
 const clockIn = (techId) => request(`/time-clock/in`, { method: "POST", body: JSON.stringify(techId ? { techId } : {}) });
 const clockOut = (techId) => request(`/time-clock/out`, { method: "POST", body: JSON.stringify(techId ? { techId } : {}) });
 const clockStatus = (techId, date) => { const p = new URLSearchParams(); if (techId) p.set("techId", techId); if (date) p.set("date", date); return request(`/time-clock/status?${p.toString()}`); };
 const api = { API_BASE, login, registerSalon, logout, me, loadCalendar, today, weekStart, todayISO: today, workweekStart: weekStart,
   getSettings, getStaff, getAppointments, getTickets, getPayroll, getTipPool, commitPayroll, commitTipPool,
-  putSettings, updateStaffComp, createStaff, setStaffPassword, createAppointment, checkout, clockIn, clockOut, clockStatus };
+  putSettings, updateStaffComp, createStaff, setStaffPassword, createAppointment, checkout, getSales, voidTicket, clockIn, clockOut, clockStatus };
 
 // ---- engine mirror (matches src/lib/commissionEngine.ts) ------------------
 const applyBps = (cents, bps) => Math.round((cents * bps) / 10000);
@@ -278,7 +280,7 @@ function SalonPOS() {
           {tab === "schedule" && <Schedule techs={techs} appts={appts} onAddWalkIn={handleAddWalkIn} onCheckout={goCheckout} />}
           {tab === "checkout" && <Checkout techs={techs} config={config} user={user} pending={pending} clearPending={() => setPending(null)} onComplete={handleCheckout} />}
           {tab === "dashboard" && <Dashboard techs={techs} config={config} tickets={tickets} user={user} />}
-          {tab === "owner" && <Owner techs={techs} config={config} tickets={tickets} today={api.today()} />}
+          {tab === "owner" && <Owner techs={techs} config={config} tickets={tickets} today={api.today()} onVoided={refreshTickets} />}
           {tab === "admin" && <Admin config={config} techs={techs} onSaveSettings={handleSaveSettings} onSaveComp={handleSaveComp} onAddStaff={handleAddStaff} onSetPassword={handleSetPassword} />}
         </>)}
         {!loading && !error && config && techs.length === 0 && (isManager
@@ -404,9 +406,18 @@ function Dashboard({ techs, config, tickets, user }) {
 
 function SplitBar({ service, retail }) { const total = Math.max(1, service + retail); const sPct = (service / total) * 100; return <div className="mb-3 flex h-3 overflow-hidden rounded-full bg-gray-100"><div className="bg-purple-500" style={{ width: `${sPct}%` }} /><div className="bg-pink-400" style={{ width: `${100 - sPct}%` }} /></div>; }
 
-function Owner({ techs, config, tickets, today }) {
+function Owner({ techs, config, tickets, today, onVoided }) {
   const [payroll, setPayroll] = useState([]); const [pool, setPool] = useState(null); const [msg, setMsg] = useState(null); const [busy, setBusy] = useState(false);
-  useEffect(() => { api.getPayroll(api.workweekStart()).then((d) => setPayroll(Array.isArray(d) ? d : [d])).catch(() => setPayroll([])); api.getTipPool(today).then(setPool).catch(() => setPool(null)); }, [today]);
+  const [sales, setSales] = useState([]); const [voidingId, setVoidingId] = useState(null);
+  const loadSales = () => api.getSales(today).then((s) => setSales(Array.isArray(s) ? s : [])).catch(() => setSales([]));
+  useEffect(() => { api.getPayroll(api.workweekStart()).then((d) => setPayroll(Array.isArray(d) ? d : [d])).catch(() => setPayroll([])); api.getTipPool(today).then(setPool).catch(() => setPool(null)); loadSales(); }, [today]);
+  const voidSale = async (t) => {
+    const reason = window.prompt(`Void ticket for ${t.techName} (${fmt(t.service + t.retail)})?\nThis reverses the sale — commission, payroll and tips back it out. Enter a reason:`, "");
+    if (reason === null) return;
+    setVoidingId(t.id); setMsg(null);
+    try { await api.voidTicket(t.id, reason); setMsg(`Ticket voided for ${t.techName}.`); await loadSales(); onVoided && onVoided(); }
+    catch (e) { setMsg(`Void failed: ${e.message}`); } finally { setVoidingId(null); }
+  };
   const commitPayroll = async () => { setBusy(true); setMsg(null); try { const r = await api.commitPayroll(api.workweekStart()); setMsg(`Payroll committed — ${r.lines.length} line(s) for ${r.startsOn} → ${r.endsOn} (period locked).`); } catch (e) { setMsg(`Commit failed: ${e.message}`); } finally { setBusy(false); } };
   const finalizePool = async () => { setBusy(true); setMsg(null); try { const r = await api.commitTipPool(today); setMsg(r.alreadyExisted ? "Tip pool was already finalized for today." : `Tip pool finalized — ${r.shares.length} share(s) written.`); } catch (e) { setMsg(`Finalize failed: ${e.message}`); } finally { setBusy(false); } };
   const streams = tickets.reduce((a, t) => { a.grossService += t.service; a.retail += t.retail; a.cardTip += t.ccTip; a.cashTip += t.cashTip; return a; }, { grossService: 0, retail: 0, cardTip: 0, cashTip: 0 });
@@ -427,6 +438,11 @@ function Owner({ techs, config, tickets, today }) {
         <Card className="p-5"><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><Coins size={16} /><h3 className="font-semibold">Tip pool (today)</h3></div><div className="flex items-center gap-2">{config.tipPoolingEnabled && <button onClick={finalizePool} disabled={busy} className="rounded-lg bg-purple-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50">Finalize</button>}<Badge tone={config.tipPoolingEnabled ? "green" : "gray"}>{config.tipPoolingEnabled ? "Pooling ON" : "Pooling OFF"}</Badge></div></div>
           {config.tipPoolingEnabled ? <><Row label="W-2 card tips pooled" value={fmt(pool?.totalCardTipsCents || 0)} strong /><div className="my-1 border-t border-dashed border-gray-200" />{(pool?.shares || []).map((p) => <Row key={p.techId} label={`${p.techName} · ${p.hours}h`} value={fmt(p.shareCents)} tone="pos" />)}{(!pool || pool.shares.length === 0) && <p className="text-xs text-gray-400">No clocked W-2 hours today to split against.</p>}<p className="mt-2 text-xs text-gray-400">Split by hours, largest-remainder so shares sum exactly to the pool. 1099 contractors &amp; owners excluded by law.</p></> : <><p className="text-sm text-gray-500">Direct tips: 100% of each card tip stays with the tech who did the service.</p><div className="mt-2 flex items-start gap-2 rounded-xl bg-gray-50 p-3 text-xs text-gray-500"><Users size={14} className="mt-0.5 shrink-0" /><span>Turn on tip pooling in Admin Config to split daily card tips across W-2 staff by hours.</span></div></>}</Card>
       </div>
+      <Card className="p-5">
+        <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><FileSpreadsheet size={16} /><h3 className="font-semibold">Today's sales</h3></div><button onClick={loadSales} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600">Refresh</button></div>
+        {sales.length === 0 ? <p className="text-sm text-gray-400">No tickets today yet.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead><tr className="border-b border-gray-200 text-left text-xs text-gray-400"><th className="py-2 font-medium">Tech</th><th className="py-2 text-right font-medium">Service</th><th className="py-2 text-right font-medium">Retail</th><th className="py-2 text-right font-medium">Tips</th><th className="py-2 text-right font-medium">Discount</th><th className="py-2 text-center font-medium">Status</th><th className="py-2 text-right font-medium"></th></tr></thead><tbody>{sales.map((t) => { const voided = t.status === "VOIDED"; return <tr key={t.id} className={`border-b border-gray-100 ${voided ? "text-gray-400" : ""}`}><td className="py-2 font-medium">{t.techName}</td><td className="py-2 text-right tabular-nums">{fmt(t.service)}</td><td className="py-2 text-right tabular-nums">{fmt(t.retail)}</td><td className="py-2 text-right tabular-nums">{fmt(t.ccTip + t.cashTip)}</td><td className="py-2 text-right tabular-nums">{t.discountCents > 0 ? `- ${fmt(t.discountCents)}` : "—"}</td><td className="py-2 text-center">{voided ? <Badge tone="red">Voided</Badge> : <Badge tone="green">Completed</Badge>}</td><td className="py-2 text-right">{voided ? <span className="text-xs text-gray-300">—</span> : <button onClick={() => voidSale(t)} disabled={voidingId === t.id} className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 disabled:opacity-50">{voidingId === t.id ? "…" : "Void"}</button>}</td></tr>; })}</tbody></table></div>}
+        <p className="mt-2 text-xs text-gray-400">Voiding posts a reversing entry — the original record is kept for audit, and revenue, commission, payroll &amp; tips back it out.</p>
+      </Card>
     </div>
   );
 }

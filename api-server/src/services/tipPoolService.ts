@@ -28,6 +28,7 @@ export async function computeDailyPool(
       WHERE tt.method = 'CARD'
         AND s.employment_type = 'W2'
         AND t.salon_id = $1
+        AND t.status = 'COMPLETED'
         AND (t.created_at AT TIME ZONE 'UTC')::date = $2::date`,
     [salonId, businessDate]
   );
