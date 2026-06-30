@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Arcade Stats — The Houston IT Solutions</title>
+<meta name="robots" content="noindex"/>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --bg:#0f1726; --panel:#18233b; --line:rgba(255,255,255,.08);
+    --text:#e8eef9; --muted:#93a3c0; --accent:#22d3ee; --gold:#f4c150; --green:#10b981;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Poppins",sans-serif;background:radial-gradient(circle at 50% -10%,#16213a,var(--bg));color:var(--text);min-height:100vh;padding:24px}
+  .wrap{max-width:1000px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:20px}
+  h1{font-size:1.5rem;font-weight:600;margin:0}
+  h1 span{color:var(--gold)}
+  a.back{color:var(--accent);text-decoration:none;font-size:.9rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px}
+  .muted{color:var(--muted)}
+  input[type=password]{width:100%;max-width:320px;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0f1726;color:var(--text);font-family:inherit;font-size:1rem}
+  button{background:var(--green);color:#06281e;border:none;border-radius:10px;padding:11px 20px;font-weight:600;font-family:inherit;font-size:1rem;cursor:pointer}
+  button:hover{filter:brightness(1.05)}
+  .err{color:#fca5a5;margin-top:10px;min-height:1.2em}
+  table{width:100%;border-collapse:collapse;font-size:.92rem}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;background:rgba(34,211,238,.15);color:var(--accent);border-radius:20px;padding:2px 10px;font-size:.8rem}
+  .stat-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;min-width:140px}
+  .stat .n{font-size:1.6rem;font-weight:700;color:var(--gold)}
+  .stat .l{color:var(--muted);font-size:.8rem}
+  .gold{color:var(--gold)} .green{color:var(--green)}
+  .section-title{font-size:1.1rem;font-weight:600;margin:0 0 12px}
+  #dashboard{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📊 Arcade <span>Player Stats</span></h1>
+    <a class="back" href="../games.html">← Back to Arcade</a>
+  </header>
+
+  <div class="card" id="login-card">
+    <p class="muted" style="margin-top:0">Enter the admin password to view player statistics.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="password" id="pwd" placeholder="Admin password" autocomplete="current-password"/>
+      <button id="login-btn">View stats</button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="dashboard">
+    <div class="stat-row" id="totals"></div>
+
+    <div class="card">
+      <div class="section-title">🏆 Leaderboard</div>
+      <div style="overflow-x:auto">
+        <table id="leaderboard">
+          <thead><tr>
+            <th>Player</th>
+            <th class="num">Games</th>
+            <th class="num">Wins</th>
+            <th class="num">2nd</th>
+            <th class="num">3rd</th>
+            <th class="num">Last</th>
+            <th class="num">Win %</th>
+            <th class="num">Points</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🕑 Recent games</div>
+      <div style="overflow-x:auto">
+        <table id="recent">
+          <thead><tr>
+            <th>When</th><th>Game</th><th>Room</th><th>Players</th><th>Winner</th><th>Last</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let adminPwd = '';
+
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function fmtDate(s){ try { return new Date(s).toLocaleString(); } catch(e){ return s; } }
+  function gameLabel(t){ return t === 'cotuong' ? 'Cờ Tướng' : 'Tiến Lên'; }
+
+  async function loadStats() {
+    $('err').innerText = '';
+    try {
+      const r = await fetch('/api/games/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPwd })
+      });
+      const data = await r.json();
+      if (!r.ok) { $('err').innerText = data.error || 'Could not load stats.'; return; }
+      render(data);
+      $('login-card').style.display = 'none';
+      $('dashboard').style.display = 'block';
+    } catch (e) {
+      $('err').innerText = 'Network error — is the stats API deployed?';
+    }
+  }
+
+  function render(data) {
+    const t = data.totals || {};
+    $('totals').innerHTML =
+      `<div class="stat"><div class="n">${t.total_games||0}</div><div class="l">Games played</div></div>` +
+      `<div class="stat"><div class="n">${t.total_players||0}</div><div class="l">Players</div></div>`;
+
+    const lb = $('leaderboard').querySelector('tbody');
+    lb.innerHTML = '';
+    (data.leaderboard || []).forEach((p, i) => {
+      const winPct = p.games ? Math.round((p.wins / p.games) * 100) : 0;
+      const medal = i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : '';
+      lb.innerHTML += `<tr>
+        <td>${medal}${esc(p.player)}</td>
+        <td class="num">${p.games}</td>
+        <td class="num gold">${p.wins}</td>
+        <td class="num">${p.seconds}</td>
+        <td class="num">${p.thirds}</td>
+        <td class="num">${p.lasts}</td>
+        <td class="num">${winPct}%</td>
+        <td class="num green">${p.points}</td>
+      </tr>`;
+    });
+    if (!(data.leaderboard || []).length) lb.innerHTML = '<tr><td colspan="8" class="muted">No games recorded yet.</td></tr>';
+
+    const rc = $('recent').querySelector('tbody');
+    rc.innerHTML = '';
+    (data.recent || []).forEach(g => {
+      const players = (g.details && g.details.placements) ? g.details.placements.join(', ') : g.num_players + ' players';
+      rc.innerHTML += `<tr>
+        <td>${fmtDate(g.played_at)}</td>
+        <td><span class="pill">${gameLabel(g.game_type)}</span></td>
+        <td>${esc(g.room || '—')}</td>
+        <td class="muted">${esc(players)}</td>
+        <td class="gold">${esc(g.winner || '—')}</td>
+        <td>${esc(g.loser || '—')}</td>
+      </tr>`;
+    });
+    if (!(data.recent || []).length) rc.innerHTML = '<tr><td colspan="6" class="muted">No games recorded yet.</td></tr>';
+  }
+
+  $('login-btn').addEventListener('click', () => { adminPwd = $('pwd').value; loadStats(); });
+  $('pwd').addEventListener('keypress', e => { if (e.key === 'Enter') { adminPwd = $('pwd').value; loadStats(); } });
+</script>
+</body>
+</html>

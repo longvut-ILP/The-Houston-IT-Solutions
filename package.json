@@ -1,0 +1,10 @@
+{
+  "name": "houston-it-solutions-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static marketing site + arcade. Includes Vercel serverless functions under /api for arcade game stats.",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.4"
+  }
+}

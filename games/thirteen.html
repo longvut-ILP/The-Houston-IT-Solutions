@@ -738,6 +738,7 @@ function handleIncomingData(data, conn) {
                 document.getElementById('turn-indicator').innerText = "Game Over!";
                 if (isHost) {
                     gameInProgress = false;
+                    recordGameResult();
                     startReadyPhase();
                 }
             }
@@ -1397,6 +1398,33 @@ function updateRoundHistoryUI() {
 }
 
 function broadcastToClients(data) { clientConnections.forEach(c => c.send(data)); }
+
+// Host posts the finished game's results to the arcade stats backend.
+// Fails silently if the API isn't deployed yet (e.g. local testing).
+function recordGameResult() {
+    if (!isHost) return;
+    try {
+        const loser = players.find(p => !finishedPlayers.includes(p));
+        const placements = [...finishedPlayers];
+        if (loser && !placements.includes(loser)) placements.push(loser);
+        if (placements.length < 2) return;
+        const roomEl = document.getElementById('lobby-room-id');
+        const room = roomEl ? (roomEl.innerText || '').trim() : '';
+        fetch('/api/games/record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                gameType: 'thirteen',
+                room: room,
+                players: [...players],
+                placements: placements,
+                scores: Object.assign({}, playerScores),
+                roundHistory: [...roundHistory],
+                ts: Date.now()
+            })
+        }).catch(() => {});
+    } catch (e) { /* never let stats break the game */ }
+}
 
 // ===== Seating / waiting-line helpers (host-authoritative) =====
 
