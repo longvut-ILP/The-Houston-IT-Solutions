@@ -174,29 +174,87 @@ export async function recordPayment(
     amountCents: number;
     tipCents: number;
     cardFeeCents: number;
+    discountCents: number;
     createdBy: string;
   }
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO payments (restaurant_id, order_id, method, amount_cents, tip_cents, card_fee_cents, created_by)
-     VALUES ($1,$2,$3::payment_method,$4,$5,$6,$7) RETURNING id`,
-    [p.restaurantId, p.orderId, p.method, p.amountCents, p.tipCents, p.cardFeeCents, p.createdBy]
+    `INSERT INTO payments (restaurant_id, order_id, method, amount_cents, tip_cents, card_fee_cents, discount_cents, created_by)
+     VALUES ($1,$2,$3::payment_method,$4,$5,$6,$7,$8) RETURNING id`,
+    [p.restaurantId, p.orderId, p.method, p.amountCents, p.tipCents, p.cardFeeCents, p.discountCents, p.createdBy]
   );
   return rows[0].id;
 }
 
-/** Persist tip/card-fee/total onto the order at payment time. */
+/** Persist discount/tip/card-fee/total onto the order at payment time. */
 export async function applyOrderPaymentTotals(
   db: Db,
   orderId: string,
-  tipCents: number,
-  cardFeeCents: number,
-  totalCents: number
+  v: { discountCents: number; tipCents: number; cardFeeCents: number; totalCents: number }
 ): Promise<void> {
   await db.query(
-    `UPDATE orders SET tip_cents = $2, card_fee_cents = $3, total_cents = $4 WHERE id = $1`,
-    [orderId, tipCents, cardFeeCents, totalCents]
+    `UPDATE orders SET discount_cents = $2, tip_cents = $3, card_fee_cents = $4, total_cents = $5 WHERE id = $1`,
+    [orderId, v.discountCents, v.tipCents, v.cardFeeCents, v.totalCents]
   );
+}
+
+// ---- editing an existing order (before it's paid) ----
+
+/** Append line items to an existing order. */
+export async function insertOrderItems(
+  db: Db,
+  orderId: string,
+  lines: PersistLine[]
+): Promise<void> {
+  for (const l of lines) {
+    await db.query(
+      `INSERT INTO order_items
+         (order_id, menu_item_id, name_snapshot, unit_price_cents, quantity, line_total_cents, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [orderId, l.menuItemId, l.nameSnapshot, l.unitPriceCents, l.quantity, l.lineTotalCents, l.notes ?? null]
+    );
+  }
+}
+
+export async function updateItemQuantity(db: Db, orderItemId: string, quantity: number): Promise<void> {
+  await db.query(
+    `UPDATE order_items SET quantity = $2, line_total_cents = unit_price_cents * $2 WHERE id = $1`,
+    [orderItemId, quantity]
+  );
+}
+
+export async function deleteOrderItem(db: Db, orderItemId: string): Promise<void> {
+  await db.query(`DELETE FROM order_items WHERE id = $1`, [orderItemId]);
+}
+
+/** Recompute subtotal/tax/total for an order from its current items. */
+export async function recomputeOrderTotals(
+  db: Db,
+  orderId: string,
+  taxBps: number
+): Promise<{ subtotalCents: number; taxCents: number }> {
+  const { rows } = await db.query<{ sub: string }>(
+    `SELECT COALESCE(SUM(line_total_cents),0) AS sub FROM order_items WHERE order_id = $1`,
+    [orderId]
+  );
+  const subtotalCents = Number(rows[0].sub);
+  const taxCents = Math.round((subtotalCents * taxBps) / 10000);
+  await db.query(
+    `UPDATE orders SET subtotal_cents = $2, tax_cents = $3, total_cents = $2 + $3 WHERE id = $1`,
+    [orderId, subtotalCents, taxCents]
+  );
+  return { subtotalCents, taxCents };
+}
+
+export async function getOrderStatus(db: Db, orderId: string): Promise<string | null> {
+  const { rows } = await db.query<{ status: string }>(`SELECT status FROM orders WHERE id = $1`, [orderId]);
+  return rows[0]?.status ?? null;
+}
+
+export function orderIdForItem(db: Db, orderItemId: string): Promise<string | null> {
+  return db
+    .query<{ order_id: string }>(`SELECT order_id FROM order_items WHERE id = $1`, [orderItemId])
+    .then((r) => r.rows[0]?.order_id ?? null);
 }
 
 /** Sales report rows for a day (by local date range in UTC bounds). */

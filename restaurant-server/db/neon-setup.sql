@@ -109,6 +109,7 @@ CREATE TABLE orders (
     customer_label  TEXT,
     subtotal_cents  BIGINT NOT NULL DEFAULT 0,
     tax_cents       BIGINT NOT NULL DEFAULT 0,
+    discount_cents  BIGINT NOT NULL DEFAULT 0,
     tip_cents       BIGINT NOT NULL DEFAULT 0,
     card_fee_cents  BIGINT NOT NULL DEFAULT 0,
     total_cents     BIGINT NOT NULL DEFAULT 0,
@@ -152,6 +153,7 @@ CREATE TABLE payments (
     amount_cents    BIGINT NOT NULL,
     tip_cents       BIGINT NOT NULL DEFAULT 0,
     card_fee_cents  BIGINT NOT NULL DEFAULT 0,
+    discount_cents  BIGINT NOT NULL DEFAULT 0,
     created_by      UUID REFERENCES staff(id),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

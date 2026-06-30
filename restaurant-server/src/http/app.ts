@@ -19,6 +19,10 @@ import {
   bumpOrderItem,
   checkout,
   reportSince,
+  addItems,
+  changeItemQty,
+  removeItem,
+  voidOrder,
 } from "../services/orderService";
 import { getMenu, insertCategory, insertItem, updateItem, itemRestaurant } from "../repositories/menuRepo";
 import { getCurrentConfig, replaceCurrentConfig } from "../repositories/settingsRepo";
@@ -284,6 +288,51 @@ export function createApp() {
     })
   );
 
+  // Add items to an existing (unpaid) order.
+  app.post(
+    "/orders/:id/items",
+    h(async (req, res) => {
+      const auth = getAuth(req);
+      await assertOrderInRestaurant(req, req.params.id);
+      const b = z.object({ lines: z.array(lineSchema).min(1) }).parse(req.body);
+      res.status(201).json(await addItems(auth.restaurantId, req.params.id, auth.staffId, b.lines));
+    })
+  );
+
+  // Change an item's quantity.
+  app.patch(
+    "/order-items/:id",
+    h(async (req, res) => {
+      const auth = getAuth(req);
+      const owner = await orderItemRestaurant(pool, req.params.id);
+      if (owner !== auth.restaurantId) throw new HttpError(403, "Cross-restaurant access denied");
+      const b = z.object({ quantity: z.number().int().positive() }).parse(req.body);
+      res.json(await changeItemQty(auth.restaurantId, req.params.id, b.quantity, auth.staffId));
+    })
+  );
+
+  // Remove / comp an item from an order.
+  app.delete(
+    "/order-items/:id",
+    h(async (req, res) => {
+      const auth = getAuth(req);
+      const owner = await orderItemRestaurant(pool, req.params.id);
+      if (owner !== auth.restaurantId) throw new HttpError(403, "Cross-restaurant access denied");
+      res.json(await removeItem(auth.restaurantId, req.params.id, auth.staffId));
+    })
+  );
+
+  // Void an entire unpaid order.
+  app.post(
+    "/orders/:id/void",
+    h(async (req, res) => {
+      const auth = getAuth(req);
+      await assertOrderInRestaurant(req, req.params.id);
+      const b = z.object({ reason: z.string().max(200).nullish() }).parse(req.body ?? {});
+      res.json(await voidOrder(auth.restaurantId, req.params.id, auth.staffId, b.reason ?? undefined));
+    })
+  );
+
   app.post(
     "/order-items/:id/bump",
     h(async (req, res) => {
@@ -302,7 +351,12 @@ export function createApp() {
       const auth = getAuth(req);
       await assertOrderInRestaurant(req, req.params.id);
       const b = z
-        .object({ method: z.enum(["CARD", "CASH"]), tipCents: z.number().int().min(0) })
+        .object({
+          method: z.enum(["CARD", "CASH"]),
+          tipCents: z.number().int().min(0),
+          discountCents: z.number().int().min(0).optional(),
+          reason: z.string().max(200).nullish(),
+        })
         .parse(req.body);
       res.json(await checkout(auth.restaurantId, req.params.id, auth.staffId, b));
     })
