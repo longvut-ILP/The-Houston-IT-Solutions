@@ -167,12 +167,16 @@ button:disabled { background: #33415a; color: #7e8aa3; cursor: not-allowed; filt
 <div id="spectator-banner" style="display:none; background:#37474f; color:#fff; padding:8px 12px; border-radius:6px; margin-bottom:10px;">👀 You're spectating — you'll be dealt in when a seat opens.</div>
 <div id="game-waiting" style="display:none; background:#2a2a2a; padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:0.9em; color:#ffb74d;"></div>
 
+<!-- Player turn order -->
+<div style="font-size:0.8rem; color:#93a3c0; margin-bottom:4px;">Turn order →</div>
+<div id="turn-order" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;"></div>
+
 <!-- Turn Indicator & Timer -->
 <h3 id="turn-indicator" style="display: none;">Waiting for game to start...</h3>
 <div id="timer-display">⏳ 30s</div>
 
-<!-- Opponent Card Tracker -->
-<div id="opponent-area"></div>
+<!-- Opponent Card Tracker (superseded by #turn-order; kept hidden for compatibility) -->
+<div id="opponent-area" style="display:none;"></div>
 
 <!-- Scoreboard, Leaderboard & History -->
 <div class="stats-container">
@@ -1016,6 +1020,7 @@ function updateTurnUI() {
         document.getElementById('pass-btn').disabled = true;
         document.getElementById('revert-btn').disabled = true;
     }
+    renderTurnOrder();
 }
 
 function startTurnTimer() {
@@ -1174,6 +1179,39 @@ function updateOpponentUI() {
             div.innerHTML = `👤 ${p}: <span style="color:#ffeb3b;">${cardCounts[p] || 0}</span> cards`;
             container.appendChild(div);
         }
+    });
+    renderTurnOrder();
+}
+
+// Show all seated players in play order, highlight whose turn it is, with card
+// counts and finishing medals. Visible to players and spectators alike.
+function renderTurnOrder() {
+    const box = document.getElementById('turn-order');
+    if (!box) return;
+    if (!players.length) { box.style.display = 'none'; return; }
+    box.style.display = 'flex';
+    box.innerHTML = '';
+    const medals = ['🥇', '🥈', '🥉', '4th'];
+    players.forEach((p, i) => {
+        const isCurrent = gameInProgress && !readyPhase && i === currentTurnIndex
+            && !finishedPlayers.includes(p);
+        const place = finishedPlayers.indexOf(p);
+        const chip = document.createElement('div');
+        chip.style.cssText = 'display:flex;flex-direction:column;align-items:center;min-width:66px;'
+            + 'padding:6px 8px;border-radius:10px;font-size:0.78rem;'
+            + 'border:2px solid ' + (isCurrent ? '#10b981' : 'transparent') + ';'
+            + 'background:' + (isCurrent ? 'rgba(16,185,129,0.18)' : '#0f1726') + ';';
+        const order = document.createElement('div');
+        order.style.cssText = 'font-size:0.68rem;color:#93a3c0;';
+        order.innerText = '#' + (i + 1);
+        const nm = document.createElement('div');
+        nm.style.cssText = 'font-weight:600;margin:2px 0;color:' + (p === myName ? '#f4c150' : '#e8eef9') + ';';
+        nm.innerText = (isCurrent ? '👉 ' : '') + p + (p === myName ? ' (you)' : '');
+        const cnt = document.createElement('div');
+        cnt.style.cssText = 'color:#93a3c0;';
+        cnt.innerText = place !== -1 ? (medals[place] || 'done') : ((cardCounts[p] || 0) + ' cards');
+        chip.appendChild(order); chip.appendChild(nm); chip.appendChild(cnt);
+        box.appendChild(chip);
     });
 }
 
@@ -1522,6 +1560,7 @@ function applyRoleView() {
         const e = document.getElementById(id); if (e) e.style.display = seated ? '' : 'none';
     });
     updateGameWaitingUI();
+    renderTurnOrder();
 }
 
 // A waiting player switches into watch mode and sees the live table.
