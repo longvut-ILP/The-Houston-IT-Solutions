@@ -34,6 +34,23 @@
       this.w = w; this.h = h;
     }
 
+    // Fit the board to the current viewport (called on load and window resize).
+    // Drives the --cell CSS variable so the canvas, pieces and markers all use
+    // the same geometry; the controller re-renders pieces after this.
+    resize() {
+      const baseCell = 64, margin = 36;
+      const maxBoard = 8 * baseCell + 2 * margin; // natural full size
+      const avail = Math.min(window.innerWidth - 20, maxBoard);
+      let cell = Math.floor((avail - 2 * margin) / 8);
+      cell = Math.max(26, Math.min(baseCell, cell));
+      const root = document.documentElement;
+      root.style.setProperty("--cell", cell + "px");
+      root.style.setProperty("--margin", margin + "px");
+      this.geom = readGeom();
+      this._sizeCanvas();
+      this.drawBoard();
+    }
+
     // Internal (file,rank) -> pixel center.
     xy(file, rank) {
       const { cell, margin } = this.geom;

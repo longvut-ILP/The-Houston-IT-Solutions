@@ -65,6 +65,14 @@
 
       this.view.drawBoard();
       this.refresh();
+
+      // Keep the board fitted to the window (and re-place pieces) on resize.
+      const applyResize = () => { this.view.resize(); this.refresh(); };
+      window.addEventListener("resize", () => {
+        clearTimeout(this._rsz);
+        this._rsz = setTimeout(applyResize, 100);
+      });
+      applyResize(); // fit on first load
     }
 
     // Is the side to move controlled by the engine?
